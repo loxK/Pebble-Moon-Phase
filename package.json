@@ -1,0 +1,53 @@
+{
+  "name": "moonphases",
+  "author": "Laurent Dinclaux <laurent@knc.nc>",
+  "version": "1.0.0",
+  "license": "AGPL-3.0-or-later",
+  "keywords": ["pebble-app", "moon", "moonphase", "astronomy"],
+  "private": false,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Moon Phase",
+    "uuid": "3c956359-0bb6-4c37-a8be-c23ddbfa214d",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "Hemisphere"
+    ],
+    "resources": {
+      "media": [
+        { "type": "bitmap", "name": "IMAGE_MENU_ICON", "menuIcon": true, "file": "images/launcher_moon.png" },
+        { "type": "bitmap", "name": "MOON_NEW_TINY", "file": "images/timeline/moon_new_tiny.png" },
+        { "type": "bitmap", "name": "MOON_NEW_SMALL", "file": "images/timeline/moon_new_small.png" },
+        { "type": "bitmap", "name": "MOON_NEW_LARGE", "file": "images/timeline/moon_new_large.png" },
+        { "type": "bitmap", "name": "MOON_FIRST_TINY", "file": "images/timeline/moon_first_tiny.png" },
+        { "type": "bitmap", "name": "MOON_FIRST_SMALL", "file": "images/timeline/moon_first_small.png" },
+        { "type": "bitmap", "name": "MOON_FIRST_LARGE", "file": "images/timeline/moon_first_large.png" },
+        { "type": "bitmap", "name": "MOON_FULL_TINY", "file": "images/timeline/moon_full_tiny.png" },
+        { "type": "bitmap", "name": "MOON_FULL_SMALL", "file": "images/timeline/moon_full_small.png" },
+        { "type": "bitmap", "name": "MOON_FULL_LARGE", "file": "images/timeline/moon_full_large.png" },
+        { "type": "bitmap", "name": "MOON_LAST_TINY", "file": "images/timeline/moon_last_tiny.png" },
+        { "type": "bitmap", "name": "MOON_LAST_SMALL", "file": "images/timeline/moon_last_small.png" },
+        { "type": "bitmap", "name": "MOON_LAST_LARGE", "file": "images/timeline/moon_last_large.png" }
+      ],
+      "publishedMedia": [
+        { "name": "MOON_NEW", "id": 1, "timeline": { "tiny": "MOON_NEW_TINY", "small": "MOON_NEW_SMALL", "large": "MOON_NEW_LARGE" } },
+        { "name": "MOON_FIRST", "id": 2, "timeline": { "tiny": "MOON_FIRST_TINY", "small": "MOON_FIRST_SMALL", "large": "MOON_FIRST_LARGE" } },
+        { "name": "MOON_FULL", "id": 3, "timeline": { "tiny": "MOON_FULL_TINY", "small": "MOON_FULL_SMALL", "large": "MOON_FULL_LARGE" } },
+        { "name": "MOON_LAST", "id": 4, "timeline": { "tiny": "MOON_LAST_TINY", "small": "MOON_LAST_SMALL", "large": "MOON_LAST_LARGE" } }
+      ]
+    }
+  }
+}

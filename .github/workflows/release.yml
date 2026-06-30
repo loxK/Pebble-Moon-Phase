@@ -1,0 +1,86 @@
+name: Release
+
+# Build the watchapp and publish a GitHub Release with the compiled .pbw and
+# its SHA-256, plus an auto-generated changelog. Triggered by pushing a version
+# tag (e.g. v1.0.0); also runnable by hand from the Actions tab.
+#
+# Stable "latest" download URL (the asset name never changes):
+#   https://github.com/loxK/Pebble-Moon-Phase/releases/latest/download/moon-phase.pbw
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PEBBLE_SDK: "4.17"
+  PBW_NAME: moon-phase.pbw
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0          # full history so the changelog is complete
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the Pebble tool
+        run: pip install --upgrade pebble-tool
+
+      - name: Cache the Pebble SDK
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/pebble-sdk
+          key: pebble-sdk-${{ env.PEBBLE_SDK }}
+
+      - name: Install the Pebble SDK ${{ env.PEBBLE_SDK }} (+ ARM toolchain)
+        # `pebble sdk install` exits non-zero if the SDK is already present, so
+        # skip it on a cache hit (the toolchain + current symlink are cached too).
+        run: |
+          if [ -d "$HOME/.local/share/pebble-sdk/SDKs/$PEBBLE_SDK" ]; then
+            echo "SDK $PEBBLE_SDK restored from cache — skipping install."
+          else
+            pebble sdk install "$PEBBLE_SDK"
+          fi
+
+      - name: Build
+        run: pebble build
+
+      - name: Package .pbw + checksum
+        id: pkg
+        run: |
+          pbw="$(ls build/*.pbw | head -1)"
+          cp "$pbw" "$PBW_NAME"
+          sha256sum "$PBW_NAME" > "$PBW_NAME.sha256"
+          echo "sha256=$(cut -d' ' -f1 "$PBW_NAME.sha256")" >> "$GITHUB_OUTPUT"
+          cat "$PBW_NAME.sha256"
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ${{ env.PBW_NAME }}
+            ${{ env.PBW_NAME }}.sha256
+          generate_release_notes: true       # auto changelog from commits
+          body: |
+            ## 🌙 Moon Phase — ${{ github.ref_name }}
+
+            **Get it on the [Pebble App Store](https://apps.repebble.com/86a2d34ade9646dfb84d51af)** — or sideload the `.pbw` below.
+
+            **Latest download:** <https://github.com/${{ github.repository }}/releases/latest/download/moon-phase.pbw>
+
+            **SHA-256** — check your file matches this published build:
+            ```
+            ${{ steps.pkg.outputs.sha256 }}  moon-phase.pbw
+            ```
+            ```sh
+            sha256sum -c moon-phase.pbw.sha256
+            ```

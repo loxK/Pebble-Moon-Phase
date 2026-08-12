@@ -534,6 +534,13 @@ static void prv_init(void) {
   app_message_open(64, 64);
   tick_timer_service_subscribe(HOUR_UNIT, prv_tick);
 
+  // Third-party apps get no touch input until they ask for it: the phase list
+  // scrolls under the finger and the phase screen answers swipes only once this
+  // is set. The guard keeps the build going on SDKs without the call.
+#if PBL_API_EXISTS(app_touch_navigation_enable)
+  app_touch_navigation_enable(true);
+#endif
+
   s_main_window = window_create();
   window_set_background_color(s_main_window, COL_BG);
   window_set_window_handlers(s_main_window, (WindowHandlers) {

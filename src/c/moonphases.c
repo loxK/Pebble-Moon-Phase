@@ -55,6 +55,20 @@ static double s_anim_progress;  // 0..1 (eased), only meaningful while animating
 static bool s_animating;
 static bool s_did_animate;      // play once per launch, not on every appear
 
+// Shooting star: idle waits, then one streak across the sky. The first pass
+// comes right after the launch animation settles, the rest at random.
+#define SHOOT_FIRST_MS 1600
+#define SHOOT_WAIT_MIN_MS 3000
+#define SHOOT_WAIT_MAX_MS 9000
+#define SHOOT_DURATION_MS 520
+#define SHOOT_TAIL 14           // segments trailing the head, 2% of the path apart
+
+static bool s_shoot_active;
+static double s_shoot_progress;      // 0..1 along the path
+static int s_shoot_x0, s_shoot_y0;   // entry point, in % of the screen
+static int s_shoot_dx, s_shoot_dy;   // travel, in % of the screen
+static AppTimer *s_shoot_timer;
+
 // ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
@@ -244,6 +258,24 @@ static void prv_draw_star(GContext *ctx, int x, int y, int sz) {
   }
 }
 
+// Xorshift, seeded from the clock at launch: the shooting star needs a cheap
+// source of randomness and the C library offers none here.
+static uint32_t s_rand_state = 1;
+
+static uint32_t prv_rand(void) {
+  uint32_t x = s_rand_state;
+  x ^= x << 13;
+  x ^= x >> 17;
+  x ^= x << 5;
+  s_rand_state = x;
+  return x;
+}
+
+/** Random integer in [lo, hi). */
+static int prv_rand_range(int lo, int hi) {
+  return lo + (int)(prv_rand() % (uint32_t)(hi - lo));
+}
+
 static void prv_draw_stars(GContext *ctx, GRect b) {
   graphics_context_set_fill_color(ctx, COL_FG);
   graphics_context_set_stroke_color(ctx, COL_FG);
@@ -254,12 +286,41 @@ static void prv_draw_stars(GContext *ctx, GRect b) {
   }
 }
 
+// A streak crossing the sky, entering and leaving past the edges. Both ends of
+// the path sit off screen, so the star is only ever seen mid-flight. There is
+// no alpha to fade with, so the tail thins into spaced pixels and shortens over
+// the last third of the run.
+static void prv_draw_shooting_star(GContext *ctx, GRect b) {
+  if (!s_shoot_active) return;
+
+  const double p = s_shoot_progress;
+  const int tail = (p > 0.66) ? (int)((1.0 - p) * 3.0 * SHOOT_TAIL) : SHOOT_TAIL;
+
+  graphics_context_set_fill_color(ctx, COL_FG);
+  graphics_context_set_stroke_color(ctx, COL_FG);
+
+  for (int i = tail; i >= 0; i--) {
+    double q = p - i * 0.02;
+    if (q < 0.0) continue;
+    int x = b.origin.x + (int)((s_shoot_x0 + s_shoot_dx * q) * b.size.w / 100.0);
+    int y = b.origin.y + (int)((s_shoot_y0 + s_shoot_dy * q) * b.size.h / 100.0);
+    if (i == 0) {
+      graphics_fill_circle(ctx, GPoint(x, y), 2);
+    } else if (i < 3) {
+      graphics_fill_circle(ctx, GPoint(x, y), 1);
+    } else if ((i & 1) == 0) {
+      graphics_draw_pixel(ctx, GPoint(x, y));
+    }
+  }
+}
+
 static void prv_main_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
 
   graphics_context_set_fill_color(ctx, COL_BG);
   graphics_fill_rect(ctx, b, 0, GCornerNone);
   prv_draw_stars(ctx, b);
+  prv_draw_shooting_star(ctx, b);
   graphics_context_set_text_color(ctx, COL_FG);
 
   // The SELECT bump pokes in from the right edge; reserve a little room there.
@@ -358,8 +419,64 @@ static const AnimationImplementation s_anim_impl = {
   .teardown = prv_anim_teardown,
 };
 
+static void prv_shoot_schedule(void);
+
+static void prv_shoot_update(Animation *anim, const AnimationProgress progress) {
+  s_shoot_progress = (double)progress / ANIMATION_NORMALIZED_MAX;
+  if (s_main_layer) layer_mark_dirty(s_main_layer);
+}
+
+static void prv_shoot_teardown(Animation *anim) {
+  s_shoot_active = false;
+  if (s_main_layer) layer_mark_dirty(s_main_layer);
+  // The list window sits on top of this one while it is open; the sky is not
+  // visible then and needs no further passes.
+  if (window_stack_get_top_window() == s_main_window) {
+    prv_shoot_schedule();
+  }
+}
+
+static const AnimationImplementation s_shoot_impl = {
+  .update = prv_shoot_update,
+  .teardown = prv_shoot_teardown,
+};
+
+static void prv_shoot_fire(void *data) {
+  s_shoot_timer = NULL;
+
+  // Crosses downwards, entering from the top or from a side, and always exits
+  // past an edge.
+  const bool leftwards = prv_rand() & 1;
+  s_shoot_x0 = leftwards ? prv_rand_range(75, 115) : prv_rand_range(-15, 25);
+  s_shoot_y0 = prv_rand_range(-15, 15);
+  s_shoot_dx = leftwards ? -prv_rand_range(60, 95) : prv_rand_range(60, 95);
+  s_shoot_dy = prv_rand_range(35, 65);
+
+  s_shoot_active = true;
+  s_shoot_progress = 0.0;
+
+  Animation *anim = animation_create();
+  animation_set_duration(anim, SHOOT_DURATION_MS);
+  animation_set_curve(anim, AnimationCurveLinear);
+  animation_set_implementation(anim, &s_shoot_impl);
+  animation_schedule(anim);
+}
+
+static void prv_shoot_schedule_in(uint32_t delay_ms) {
+  if (s_shoot_timer) return;
+  s_shoot_timer = app_timer_register(delay_ms, prv_shoot_fire, NULL);
+}
+
+static void prv_shoot_schedule(void) {
+  prv_shoot_schedule_in(prv_rand_range(SHOOT_WAIT_MIN_MS, SHOOT_WAIT_MAX_MS));
+}
+
 static void prv_main_appear(Window *window) {
-  if (s_did_animate) return;  // only on launch, not when returning from the list
+  if (s_did_animate) {  // coming back from the list
+    prv_shoot_schedule();
+    return;
+  }
+  prv_shoot_schedule_in(SHOOT_FIRST_MS);
   s_did_animate = true;
   s_animating = true;
   s_anim_progress = 0.0;
@@ -369,6 +486,13 @@ static void prv_main_appear(Window *window) {
   animation_set_curve(anim, AnimationCurveLinear);  // per-component easing below
   animation_set_implementation(anim, &s_anim_impl);
   animation_schedule(anim);
+}
+
+static void prv_main_disappear(Window *window) {
+  if (s_shoot_timer) {
+    app_timer_cancel(s_shoot_timer);
+    s_shoot_timer = NULL;
+  }
 }
 
 static void prv_main_load(Window *window) {
@@ -539,6 +663,7 @@ static bool prv_touch_nav_is_safe(void) {
 #endif
 
 static void prv_init(void) {
+  s_rand_state = (uint32_t)prv_now() | 1u;
   s_lang = i18n_lang();
   s_southern = persist_exists(PERSIST_KEY_HEMISPHERE)
              ? persist_read_int(PERSIST_KEY_HEMISPHERE) : 0;
@@ -561,6 +686,7 @@ static void prv_init(void) {
   window_set_window_handlers(s_main_window, (WindowHandlers) {
     .load = prv_main_load,
     .appear = prv_main_appear,
+    .disappear = prv_main_disappear,
     .unload = prv_main_unload,
   });
   window_stack_push(s_main_window, true);

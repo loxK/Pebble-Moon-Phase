@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 env:
-  PEBBLE_SDK: "4.17"
+  PEBBLE_SDK: "4.33.1"
   PBW_NAME: moon-phase.pbw
 
 jobs:

@@ -114,11 +114,14 @@ static void prv_format_relative(time_t event, char *buf, size_t len) {
   i18n_relative(s_lang, days, buf, len);
 }
 
-/** Format the calendar date of an event into `buf` (localized). */
-static void prv_format_date(time_t event, char *buf, size_t len) {
+/**
+ * Format the calendar date of an event into `buf` (localized). `abbrev` cuts
+ * the month to three letters, for the places where a long name would run past
+ * the edge: every row of the list, and the whole of a round screen.
+ */
+static void prv_format_date(time_t event, bool abbrev, char *buf, size_t len) {
   struct tm t = *localtime(&event);
-  // Round screens get the 3-letter month so long names don't run off the edge.
-  i18n_date(s_lang, t.tm_mday, t.tm_mon, PBL_IF_ROUND_ELSE(true, false), buf, len);
+  i18n_date(s_lang, t.tm_mday, t.tm_mon, abbrev, buf, len);
 }
 
 // Integer square root (avoids the double libm sqrt, which is heavy on stack).
@@ -268,7 +271,7 @@ static void prv_main_update(Layer *layer, GContext *ctx) {
   const char *name_str = i18n_phase_name(s_lang, next->type);
   char relbuf[24], datebuf[24];
   prv_format_relative(next->time, relbuf, sizeof(relbuf));
-  prv_format_date(next->time, datebuf, sizeof(datebuf));
+  prv_format_date(next->time, PBL_IF_ROUND_ELSE(true, false), datebuf, sizeof(datebuf));
 
   // The phase name uses the big font and wraps to two lines when long, so the
   // layout (and the Moon above it) adapts instead of truncating.
@@ -431,7 +434,7 @@ static void prv_menu_draw_row(GContext *ctx, const Layer *cell, MenuIndex *index
 
   // Title (phase name) + subtitle (date · relative).
   char datebuf[24], relbuf[24], sub[56];
-  prv_format_date(ev->time, datebuf, sizeof(datebuf));
+  prv_format_date(ev->time, true, datebuf, sizeof(datebuf));
   prv_format_relative(ev->time, relbuf, sizeof(relbuf));
   snprintf(sub, sizeof(sub), "%s · %s", datebuf, relbuf);
 

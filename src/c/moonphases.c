@@ -523,6 +523,18 @@ static void prv_tick(struct tm *tick_time, TimeUnits units_changed) {
   if (s_menu_layer) menu_layer_reload_data(s_menu_layer);
 }
 
+#if PBL_API_EXISTS(app_touch_navigation_enable)
+// The touch navigation dispatcher runs on the app task and reads the firmware's
+// nav state through syscalls only from 4.33.2 on. Below that it reaches into
+// kernel memory, which the MPU refuses to an unprivileged third-party app: the
+// opt-in turns the first touch into an app fault.
+static bool prv_touch_nav_is_safe(void) {
+  WatchInfoVersion fw = watch_info_get_firmware_version();
+  return fw.major > 4
+      || (fw.major == 4 && (fw.minor > 33 || (fw.minor == 33 && fw.patch >= 2)));
+}
+#endif
+
 static void prv_init(void) {
   s_lang = i18n_lang();
   s_southern = persist_exists(PERSIST_KEY_HEMISPHERE)
@@ -538,7 +550,7 @@ static void prv_init(void) {
   // scrolls under the finger and the phase screen answers swipes only once this
   // is set. The guard keeps the build going on SDKs without the call.
 #if PBL_API_EXISTS(app_touch_navigation_enable)
-  app_touch_navigation_enable(true);
+  if (prv_touch_nav_is_safe()) app_touch_navigation_enable(true);
 #endif
 
   s_main_window = window_create();

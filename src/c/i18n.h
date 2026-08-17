@@ -35,6 +35,21 @@ Lang i18n_lang(void);
 const char *i18n_phase_name(Lang lang, int phase_type);
 
 /**
+ * Shortened phase name for the launcher glance, whose subtitle is a single
+ * clipped line. `waiting` picks the tighter form used while the line also
+ * carries the countdown to the phase.
+ */
+const char *i18n_glance_phase(Lang lang, int phase_type, bool waiting);
+
+/**
+ * Countdown branches of the glance template string. Both keep the firmware's
+ * own conversion specifier: "%d" is the number of days left, expanded by the
+ * launcher every time it re-evaluates the line.
+ */
+const char *i18n_glance_in_days(Lang lang);
+const char *i18n_glance_tomorrow(Lang lang);
+
+/**
  * Localized relative-day string into `buf`.
  * days == 0 -> "Today", 1 -> "Tomorrow", otherwise "In N days".
  */

@@ -8,6 +8,7 @@
 #include <math.h>
 #include "moon_phase.h"
 #include "i18n.h"
+#include "glance.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -564,6 +565,7 @@ static void prv_init(void) {
 }
 
 static void prv_deinit(void) {
+  glance_publish(s_lang, s_southern);
   window_destroy(s_main_window);
 }
 

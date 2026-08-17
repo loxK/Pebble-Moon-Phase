@@ -416,7 +416,7 @@ static void prv_menu_draw_row(GContext *ctx, const Layer *cell, MenuIndex *index
   bool hl = menu_cell_layer_is_highlighted(cell);
   // Launcher convention: black icon/text on white, white over the highlight.
   GColor fg = hl ? GColorWhite : GColorBlack;
-  GColor bg = hl ? PBL_IF_COLOR_ELSE(GColorVividCerulean, GColorBlack) : GColorWhite;
+  GColor bg = hl ? COL_BG : GColorWhite;
 
   MoonPhaseEvent *ev = &s_events[index->row];
 
@@ -463,9 +463,8 @@ static void prv_list_load(Window *window) {
     .get_cell_height = prv_menu_cell_height,
     .draw_row = prv_menu_draw_row,
   });
-  GColor hl_bg = PBL_IF_COLOR_ELSE(GColorVividCerulean, GColorBlack);
   menu_layer_set_normal_colors(s_menu_layer, GColorWhite, GColorBlack);
-  menu_layer_set_highlight_colors(s_menu_layer, hl_bg, GColorWhite);
+  menu_layer_set_highlight_colors(s_menu_layer, COL_BG, GColorWhite);
 #if defined(PBL_ROUND)
   menu_layer_set_center_focused(s_menu_layer, true);
 #endif

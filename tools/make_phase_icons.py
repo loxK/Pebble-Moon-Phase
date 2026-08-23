@@ -1,0 +1,115 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pillow"]
+# ///
+#
+# Draw the eight lunation icons into resources/images/timeline/, at the three
+# sizes the timeline pins and the launcher glance ask for.
+#
+# The disc is opaque -- lit side white, dark side black, black rim -- because
+# the launcher draws glance icons untinted on white rows. Shapes are rendered
+# oversampled and boxed down, which is where the grey edge pixels come from;
+# everything outside the disc stays black under a zero alpha, so the downscale
+# cannot bleed a light fringe into the rim.
+#
+# Usage:  tools/make_phase_icons.py
+
+import math
+import sys
+from pathlib import Path
+
+from PIL import Image
+
+OUT = Path(__file__).resolve().parent.parent / "resources" / "images" / "timeline"
+
+# Canvas size and rim thickness, in pixels. The rim keeps the lit side off a
+# white launcher row; it stays thin, or it swallows the dark limb of a gibbous
+# disc and the icon reads as a full Moon.
+SIZES = {"tiny": (25, 1), "small": (50, 2), "large": (80, 3)}
+
+# Position in the lunation, an eighth apart, under the name of the phase there.
+PHASES = {
+    "new": 0.0,
+    "wax_cresc": 0.125,
+    "first": 0.25,
+    "wax_gibb": 0.375,
+    "full": 0.5,
+    "wan_gibb": 0.625,
+    "last": 0.75,
+    "wan_cresc": 0.875,
+}
+
+SUPERSAMPLE = 8
+
+
+def terminator(fraction):
+    """
+    Where the lit side starts, as (threshold, waxing).
+
+    A point of the disc sits at x / sqrt(r^2 - y^2) along its own chord, running
+    from -1 on the left limb to +1 on the right one. The terminator is the
+    ellipse crossing that scale at cos(2*pi*fraction), and the Sun lights the
+    side it faces: the right one while the Moon waxes, the left one while it
+    wanes. A positive threshold cuts a crescent out of the half disc, a negative
+    one leaves a gibbous disc.
+
+    Northern hemisphere throughout. The South sees the mirror image, which is
+    the artwork of the opposite point of the lunation, so it needs no shape of
+    its own.
+    """
+    angle = 2.0 * math.pi * fraction
+    waxing = math.sin(angle) >= 0.0
+    return (math.cos(angle) if waxing else -math.cos(angle)), waxing
+
+
+def render(fraction, size, rim):
+    """One icon, oversampled and reduced to `size` square."""
+    threshold, waxing = terminator(fraction)
+    span = size * SUPERSAMPLE
+    centre = span / 2.0
+    outer = (size / 2.0 - 1.0) * SUPERSAMPLE  # one pixel of margin for the rim's antialiasing
+    inner = outer - rim * SUPERSAMPLE
+
+    luma = Image.new("L", (span, span), 0)
+    alpha = Image.new("L", (span, span), 0)
+    lit = luma.load()
+    opaque = alpha.load()
+
+    for py in range(span):
+        dy = py + 0.5 - centre
+        reach = outer * outer - dy * dy
+        if reach <= 0.0:
+            continue
+        half = math.sqrt(reach)
+        for px in range(max(0, int(centre - half)), min(span, int(centre + half) + 1)):
+            dx = px + 0.5 - centre
+            radius = dx * dx + dy * dy
+            if radius > outer * outer:
+                continue
+            opaque[px, py] = 255
+            if radius > inner * inner:
+                continue
+            chord = math.sqrt(inner * inner - dy * dy)
+            x = dx / chord
+            if (x > threshold) if waxing else (x < threshold):
+                lit[px, py] = 255
+
+    box = (size, size)
+    return Image.merge("LA", (luma.resize(box, Image.BOX),
+                              alpha.resize(box, Image.BOX))).convert("RGBA")
+
+
+def main():
+    if not OUT.is_dir():
+        sys.exit(f"missing {OUT}")
+    for phase, fraction in PHASES.items():
+        for name, (size, rim) in SIZES.items():
+            path = OUT / f"moon_{phase}_{name}.png"
+            before = path.read_bytes() if path.exists() else None
+            render(fraction, size, rim).save(path, optimize=True)
+            print(f"{path.name:34} {'unchanged' if path.read_bytes() == before else 'written'}")
+
+
+if __name__ == "__main__":
+    main()

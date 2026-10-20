@@ -129,12 +129,14 @@ static void prv_refresh_data(void) {
  * 0 = today, 1 = tomorrow, etc.
  */
 static int prv_days_until(time_t now, time_t event) {
+  // tm_isdst = -1 lets mktime find the DST state of each midnight, which may
+  // differ from that of the instant it was taken from.
   struct tm a = *localtime(&now);
-  a.tm_hour = 0; a.tm_min = 0; a.tm_sec = 0;
+  a.tm_hour = 0; a.tm_min = 0; a.tm_sec = 0; a.tm_isdst = -1;
   time_t now_midnight = mktime(&a);
 
   struct tm b = *localtime(&event);
-  b.tm_hour = 0; b.tm_min = 0; b.tm_sec = 0;
+  b.tm_hour = 0; b.tm_min = 0; b.tm_sec = 0; b.tm_isdst = -1;
   time_t ev_midnight = mktime(&b);
 
   return (int)round((double)(ev_midnight - now_midnight) / 86400.0);

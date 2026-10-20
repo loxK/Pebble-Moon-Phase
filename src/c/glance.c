@@ -55,6 +55,7 @@ static time_t prv_day_start(time_t t) {
   lt.tm_hour = 0;
   lt.tm_min = 0;
   lt.tm_sec = 0;
+  lt.tm_isdst = -1;  // midnight may not share the DST state of `t`
   return mktime(&lt);
 }
 
@@ -65,6 +66,7 @@ static time_t prv_day_end(time_t t) {
   lt.tm_hour = 0;
   lt.tm_min = 0;
   lt.tm_sec = 0;
+  lt.tm_isdst = -1;
   return mktime(&lt);
 }
 

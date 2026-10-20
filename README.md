@@ -16,12 +16,14 @@
 
 Moon Phase draws the Moon the way you'd actually see it: the real illuminated
 shape, oriented for your hemisphere. Then it tells you what's next and when.
-No phone required: everything is computed on the watch.
+Everything on screen is computed on the watch; the phone only tells it the
+hemisphere and fills your timeline.
 
 ## Get it
 
 - 📲 **[Install from the Pebble App Store](https://apps.repebble.com/86a2d34ade9646dfb84d51af)**, the easy way.
 - ⬇️ Or grab the latest **[`moon-phase.pbw`](https://github.com/loxK/Pebble-Moon-Phase/releases/latest/download/moon-phase.pbw)** and sideload it.
+- 📝 What changed in each version: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Features
 
@@ -52,6 +54,16 @@ No phone required: everything is computed on the watch.
 <img src="assets/screenshots/gabbro_main.png" width="180" alt="Round display">
 
 <sub>Black &amp; white · Pebble Time 2 · round: one app, every Pebble.</sub>
+
+<br><br>
+
+<img src="assets/screenshots/basalt_card.png" width="180" alt="The next phase card, with its date and time">
+&nbsp;&nbsp;
+<img src="assets/screenshots/emery_crescent.png" width="180" alt="A young crescent, the Moon approaching">
+&nbsp;&nbsp;
+<img src="assets/screenshots/chalk_card.png" width="180" alt="A phase card on a round display">
+
+<sub>Slide through the phases, each with its date and time; the gauge tracks the distance.</sub>
 
 </div>
 

@@ -158,7 +158,7 @@ function longDate(epoch) {
     case 'de':    return wd + ', ' + day + '. ' + MONTHS.de[mon];
     case 'es':    return wd + ', ' + day + ' de ' + MONTHS.es[mon];
     case 'pt':    return wd + ', ' + day + ' de ' + MONTHS.pt[mon];
-    case 'zh-CN': return (mon + 1) + '月' + day + '日' + wd;
+    case 'zh-CN': return (mon + 1) + '月' + day + '日 ' + wd;
     case 'zh-TW': return (mon + 1) + '月' + day + '日 ' + wd;
     case 'fr':
     case 'it':
@@ -166,10 +166,11 @@ function longDate(epoch) {
   }
 }
 
-// Distance rounded to the km with the language's grouping, e.g. "356 979 km".
+// Distance rounded to the km with the language's grouping, e.g. "356 979 km";
+// the unit stays on the line of the number.
 function formatKm(km) {
   var digits = '' + Math.round(km);
-  return digits.replace(/\B(?=(\d{3})+$)/g, THOUSANDS[pickLang()]) + ' km';
+  return digits.replace(/\B(?=(\d{3})+$)/g, THOUSANDS[pickLang()]) + '\u00a0km';
 }
 
 function sendHemisphere(southern) {

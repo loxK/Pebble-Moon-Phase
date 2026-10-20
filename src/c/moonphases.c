@@ -163,9 +163,15 @@ static void prv_format_time(time_t event, char *buf, size_t len) {
     snprintf(buf, len, "%02d:%02d", t.tm_hour, t.tm_min);
   } else {
     // strftime's %l pads the hour with a space, which would shift the centred
-    // line; only the AM/PM marker comes from it, in the watch's language.
+    // line; only the AM/PM marker comes from it, in the watch's language. A
+    // watch language the app does not speak falls back to English, and so does
+    // the marker, rather than mixing two languages on one line.
     char am_pm[8] = "";  // strftime leaves it as is when the marker does not fit
-    strftime(am_pm, sizeof(am_pm), "%p", &t);
+    if (s_lang == LANG_EN) {
+      strncpy(am_pm, t.tm_hour < 12 ? "AM" : "PM", sizeof(am_pm));
+    } else {
+      strftime(am_pm, sizeof(am_pm), "%p", &t);
+    }
     int h = t.tm_hour % 12;
     snprintf(buf, len, "%d:%02d %s", h ? h : 12, t.tm_min, am_pm);
   }

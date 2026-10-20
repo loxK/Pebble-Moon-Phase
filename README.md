@@ -14,10 +14,7 @@
 
 </div>
 
-Moon Phase draws the Moon the way you'd actually see it: the real illuminated
-shape, oriented for your hemisphere. Then it tells you what's next and when.
-Everything on screen is computed on the watch; the phone only tells it the
-hemisphere and fills your timeline.
+Moon Phase draws the Moon the way you'd actually see it: the real illuminated shape, oriented for your hemisphere. Then it tells you what's next and when. Everything on screen is computed on the watch; the phone only tells it the hemisphere and fills your timeline.
 
 ## Get it
 
@@ -27,21 +24,13 @@ hemisphere and fills your timeline.
 
 ## Features
 
-- 🌒 **The real Moon**: the current phase drawn as a crisp disc, lit exactly
-  like the sky above you.
+- 🌒 **The real Moon**: the current phase drawn as a crisp disc, lit exactly like the sky above you.
 - ⏳ **Next phase, at a glance**: *“In 4 days”* and the date, front and center.
-- 📜 **What's coming**: press **DOWN** (or swipe up on a touch screen) to slide
-  through the upcoming new, first‑quarter, full and last‑quarter phases, one
-  card each, with their date and time.
-- 🧭 **Hemisphere aware**: the crescent flips for the Southern hemisphere,
-  set automatically from your location.
-- 🌍 **Speaks your language**: English, French, German, Spanish, Italian,
-  Portuguese and Chinese, with local date formats.
-- 📏 **How far away**: a gauge across the top fills as the Moon comes closer,
-  an arrow tells whether it is approaching, and a full moon within 360,000 km
-  (the tick on the gauge) is called out as a **supermoon**.
-- 🗓️ **In your Timeline**: upcoming phases, perigees and apogees show up as
-  pins; perigees, apogees and supermoons give their distance.
+- 📜 **What's coming**: press **DOWN** (or swipe up on a touch screen) to slide through the upcoming new, first‑quarter, full and last‑quarter phases, one card each, with their date and time.
+- 🧭 **Hemisphere aware**: the crescent flips for the Southern hemisphere, set automatically from your location.
+- 🌍 **Speaks your language**: English, French, German, Spanish, Italian, Portuguese and Chinese, with local date formats.
+- 📏 **How far away**: a gauge across the top fills as the Moon comes closer, an arrow tells whether it is approaching, and a full moon within 360,000 km (the tick on the gauge) is called out as a **supermoon**.
+- 🗓️ **In your Timeline**: upcoming phases, perigees and apogees show up as pins; perigees, apogees and supermoons give their distance.
 - 🎯 **Accurate & offline**: a proper astronomical model, good to the second.
 
 ## Screenshots
@@ -75,17 +64,11 @@ pebble install --emulator emery      # try it in the emulator
 pebble install --phone <ip>          # install to your watch
 ```
 
-Press **DOWN** and **UP** to move between the upcoming phases; on a touch
-screen, swipe up and down. Long‑press **SELECT** to flip the hemisphere by
-hand, when the phone cannot tell it: touch has no long press, so that one
-needs the button.
+Press **DOWN** and **UP** to move between the upcoming phases; on a touch screen, swipe up and down. Long‑press **SELECT** to flip the hemisphere by hand, when the phone cannot tell it: touch has no long press, so that one needs the button.
 
 ## Download & verify
 
-Every [release](https://github.com/loxK/Pebble-Moon-Phase/releases/latest) ships
-the compiled `moon-phase.pbw` together with its **SHA-256** (`moon-phase.pbw.sha256`).
-It's the same build that's published to the Pebble App Store, so you can confirm
-the file you got is authentic and untampered:
+Every [release](https://github.com/loxK/Pebble-Moon-Phase/releases/latest) ships the compiled `moon-phase.pbw` together with its **SHA-256** (`moon-phase.pbw.sha256`). It's the same build that's published to the Pebble App Store, so you can confirm the file you got is authentic and untampered:
 
 ```sh
 sha256sum -c moon-phase.pbw.sha256        # -> moon-phase.pbw: OK
@@ -97,8 +80,7 @@ The checksum is also printed in each release's notes.
 
 Copyright © 2026 Laurent Dinclaux &lt;laurent@knc.nc&gt;
 
-Released under the **GNU Affero General Public License v3.0 or later**
-(AGPL‑3.0‑or‑later). See [`LICENSE`](LICENSE).
+Released under the **GNU Affero General Public License v3.0 or later** (AGPL‑3.0‑or‑later). See [`LICENSE`](LICENSE).
 
 ---
 

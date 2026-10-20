@@ -105,9 +105,10 @@ typedef struct {
 
 static const GlanceStrings GLANCES[LANG_COUNT] = {
   [LANG_EN] = {
-    .phases = {"New moon", "1st quarter", "Full moon", "Last quarter", "Supermoon"},
-    .wait = {"New moon", "1st quarter", "Full moon", "Last quarter", "Supermoon"},
-    .in_days = " in %dd", .tomorrow = " tomorrow",
+    .phases = {"New Moon", "1st Quarter", "Full Moon", "Last Quarter", "Supermoon"},
+    .wait = {"New Moon", "1st Quarter", "Full Moon", "Last Quarter", "Supermoon"},
+    // " tomorrow" runs past the edge after most names on 144 px watches.
+    .in_days = " in %dd", .tomorrow = " in 1d",
   },
   [LANG_FR] = {
     .phases = {"Nouvelle lune", "1er quartier", "Pleine lune", "Dern. quartier", "Super lune"},

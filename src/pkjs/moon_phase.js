@@ -8,8 +8,9 @@
  *
  * Computes the dates of the upcoming principal Moon phases using Meeus'
  * algorithm (Astronomical Algorithms, ch. 49) with the principal periodic
- * correction terms. Kept in sync with the C implementation that drives the
- * watch UI; this copy is only used to push timeline pins from the phone.
+ * correction terms, and the Earth-Moon distance (ch. 47). Kept in sync with the
+ * C implementation that drives the watch UI; this copy is only used to push
+ * timeline pins from the phone, and alone looks for perigees and apogees.
  */
 
 var JD_UNIX_EPOCH = 2440587.5;
@@ -118,9 +119,92 @@ function kEstimate(epoch) {
   return (yearDec - 2000.0) * 12.3685;
 }
 
+// A full moon closer than this is a supermoon (timeanddate.com convention;
+// there is no official rule).
+var SUPERMOON_KM = 360000;
+
+// Distance terms of Meeus table 47.A: [D, M, M', F, coefficient in metres].
+// Rows whose distance term is zero are left out.
+var DISTANCE_TERMS = [
+  [0, 0, 1, 0, -20905355], [2, 0, -1, 0, -3699111], [2, 0, 0, 0, -2955968],
+  [0, 0, 2, 0, -569925], [0, 1, 0, 0, 48888], [0, 0, 0, 2, -3149],
+  [2, 0, -2, 0, 246158], [2, -1, -1, 0, -152138], [2, 0, 1, 0, -170733],
+  [2, -1, 0, 0, -204586], [0, 1, -1, 0, -129620], [1, 0, 0, 0, 108743],
+  [0, 1, 1, 0, 104755], [2, 0, 0, -2, 10321], [0, 0, 1, -2, 79661],
+  [4, 0, -1, 0, -34782], [0, 0, 3, 0, -23210], [4, 0, -2, 0, -21636],
+  [2, 1, -1, 0, 24208], [2, 1, 0, 0, 30824], [1, 0, -1, 0, -8379],
+  [1, 1, 0, 0, -16675], [2, -1, 1, 0, -12831], [2, 0, 2, 0, -10445],
+  [4, 0, 0, 0, -11650], [2, 0, -3, 0, 14403], [0, 1, -2, 0, -7003],
+  [2, -1, -2, 0, 10056], [1, 0, 1, 0, 6322], [2, -2, 0, 0, -9884],
+  [0, 1, 2, 0, 5751], [2, -2, -1, 0, -4950], [2, 0, 1, -2, 4130],
+  [4, -1, -1, 0, -3958], [3, 0, -1, 0, 3258], [2, 1, 1, 0, 2616],
+  [4, -1, -2, 0, -1897], [0, 2, -1, 0, -2117], [2, 2, -1, 0, 2354],
+  [4, 0, 1, 0, -1423], [0, 0, 4, 0, -1117], [4, -1, 0, 0, -1571],
+  [1, 0, -2, 0, -1739], [0, 0, 2, -2, -4421], [0, 2, 1, 0, 1165],
+  [2, 0, -1, -2, 8752],
+];
+
+/**
+ * Earth-Moon distance at `epoch` (seconds), in km, centre to centre (Meeus
+ * ch. 47). Unrounded, so the apsis search below sees a smooth curve.
+ */
+function distanceKm(epoch) {
+  var T = (jdFromEpoch(epoch) - 2451545.0) / 36525.0;
+  var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+  var D = 297.8501921 + 445267.1114034 * T - 0.0018819 * T2 + T3 / 545868.0 - T4 / 113065000.0;
+  var M = 357.5291092 + 35999.0502909 * T - 0.0001536 * T2 + T3 / 24490000.0;
+  var Mp = 134.9633964 + 477198.8675055 * T + 0.0087414 * T2 + T3 / 69699.0 - T4 / 14712000.0;
+  var F = 93.2720950 + 483202.0175233 * T - 0.0036539 * T2 - T3 / 3526000.0 + T4 / 863310000.0;
+  var E = 1.0 - 0.002516 * T - 0.0000074 * T2;
+
+  var sum = 0.0;
+  for (var i = 0; i < DISTANCE_TERMS.length; i++) {
+    var t = DISTANCE_TERMS[i];
+    var m = Math.abs(t[1]);
+    var c = t[4] * (m === 1 ? E : m === 2 ? E * E : 1.0);
+    sum += c * cosd(t[0] * D + t[1] * M + t[2] * Mp + t[3] * F);
+  }
+  return 385000.56 + sum / 1000.0;
+}
+
+/**
+ * Perigees and apogees between `fromEpoch` and `toEpoch`, in chronological
+ * order: { perigee: bool, time: epochSeconds, distance: km }.
+ *
+ * The distance is sampled every six hours; each turn of the curve is then
+ * narrowed down by golden-section search to well under a minute.
+ */
+function apsides(fromEpoch, toEpoch) {
+  var STEP = 6 * 3600;
+  var out = [];
+  var t0 = fromEpoch, d0 = distanceKm(t0);
+  var t1 = t0 + STEP, d1 = distanceKm(t1);
+  for (var t2 = t1 + STEP; t2 <= toEpoch + STEP; t2 += STEP) {
+    var d2 = distanceKm(t2);
+    var perigee = d1 < d0 && d1 <= d2;
+    if (perigee || (d1 > d0 && d1 >= d2)) {
+      var sign = perigee ? 1 : -1;
+      var a = t0, b = t2;
+      while (b - a > 30) {
+        var c1 = b - (b - a) / 1.618034;
+        var c2 = a + (b - a) / 1.618034;
+        if (sign * distanceKm(c1) < sign * distanceKm(c2)) b = c2; else a = c1;
+      }
+      var time = Math.round((a + b) / 2);
+      if (time > fromEpoch && time <= toEpoch) {
+        out.push({ perigee: perigee, time: time, distance: distanceKm(time) });
+      }
+    }
+    t0 = t1; d0 = d1;
+    t1 = t2; d1 = d2;
+  }
+  return out;
+}
+
 /**
  * Return the next `count` principal phase events strictly after `nowEpoch`,
- * in chronological order. Each element is { type: 0..3, time: epochSeconds }.
+ * in chronological order: { type: 0..3, time: epochSeconds, distance: km,
+ * supermoon: bool }.
  */
 function upcoming(nowEpoch, count) {
   var jd = jdFromEpoch(nowEpoch);
@@ -131,11 +215,18 @@ function upcoming(nowEpoch, count) {
       var kk = k + q * 0.25;
       var t = phaseJDE(kk);
       if (t > jd) {
-        events.push({ type: q, time: epochFromJd(t) });
+        var time = epochFromJd(t);
+        var distance = distanceKm(time);
+        events.push({
+          type: q,
+          time: time,
+          distance: distance,
+          supermoon: q === 2 && distance < SUPERMOON_KM,
+        });
       }
     }
   }
   return events;
 }
 
-module.exports = { upcoming: upcoming };
+module.exports = { upcoming: upcoming, apsides: apsides, distanceKm: distanceKm };

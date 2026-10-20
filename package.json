@@ -52,7 +52,13 @@
         { "type": "bitmap", "name": "MOON_WAN_GIBB_LARGE", "file": "images/timeline/moon_wan_gibb_large.png" },
         { "type": "bitmap", "name": "MOON_WAN_CRESC_TINY", "file": "images/timeline/moon_wan_cresc_tiny.png" },
         { "type": "bitmap", "name": "MOON_WAN_CRESC_SMALL", "file": "images/timeline/moon_wan_cresc_small.png" },
-        { "type": "bitmap", "name": "MOON_WAN_CRESC_LARGE", "file": "images/timeline/moon_wan_cresc_large.png" }
+        { "type": "bitmap", "name": "MOON_WAN_CRESC_LARGE", "file": "images/timeline/moon_wan_cresc_large.png" },
+        { "type": "bitmap", "name": "MOON_PERIGEE_TINY", "file": "images/timeline/moon_perigee_tiny.png" },
+        { "type": "bitmap", "name": "MOON_PERIGEE_SMALL", "file": "images/timeline/moon_perigee_small.png" },
+        { "type": "bitmap", "name": "MOON_PERIGEE_LARGE", "file": "images/timeline/moon_perigee_large.png" },
+        { "type": "bitmap", "name": "MOON_APOGEE_TINY", "file": "images/timeline/moon_apogee_tiny.png" },
+        { "type": "bitmap", "name": "MOON_APOGEE_SMALL", "file": "images/timeline/moon_apogee_small.png" },
+        { "type": "bitmap", "name": "MOON_APOGEE_LARGE", "file": "images/timeline/moon_apogee_large.png" }
       ],
       "publishedMedia": [
         { "name": "MOON_NEW", "id": 1, "timeline": { "tiny": "MOON_NEW_TINY", "small": "MOON_NEW_SMALL", "large": "MOON_NEW_LARGE" } },
@@ -62,7 +68,9 @@
         { "name": "MOON_WAX_CRESC", "id": 5, "timeline": { "tiny": "MOON_WAX_CRESC_TINY", "small": "MOON_WAX_CRESC_SMALL", "large": "MOON_WAX_CRESC_LARGE" } },
         { "name": "MOON_WAX_GIBB", "id": 6, "timeline": { "tiny": "MOON_WAX_GIBB_TINY", "small": "MOON_WAX_GIBB_SMALL", "large": "MOON_WAX_GIBB_LARGE" } },
         { "name": "MOON_WAN_GIBB", "id": 7, "timeline": { "tiny": "MOON_WAN_GIBB_TINY", "small": "MOON_WAN_GIBB_SMALL", "large": "MOON_WAN_GIBB_LARGE" } },
-        { "name": "MOON_WAN_CRESC", "id": 8, "timeline": { "tiny": "MOON_WAN_CRESC_TINY", "small": "MOON_WAN_CRESC_SMALL", "large": "MOON_WAN_CRESC_LARGE" } }
+        { "name": "MOON_WAN_CRESC", "id": 8, "timeline": { "tiny": "MOON_WAN_CRESC_TINY", "small": "MOON_WAN_CRESC_SMALL", "large": "MOON_WAN_CRESC_LARGE" } },
+        { "name": "MOON_PERIGEE", "id": 9, "timeline": { "tiny": "MOON_PERIGEE_TINY", "small": "MOON_PERIGEE_SMALL", "large": "MOON_PERIGEE_LARGE" } },
+        { "name": "MOON_APOGEE", "id": 10, "timeline": { "tiny": "MOON_APOGEE_TINY", "small": "MOON_APOGEE_SMALL", "large": "MOON_APOGEE_LARGE" } }
       ]
     }
   }

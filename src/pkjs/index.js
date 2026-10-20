@@ -8,8 +8,8 @@
  *
  *  - Sends the hemisphere (from the phone GPS) to the watch, but only fetches a
  *    new GPS fix when the cached value is missing or stale, to save battery.
- *  - Pushes timeline pins for the upcoming phases, but only when the set of
- *    dates actually changed since the last push.
+ *  - Pushes timeline pins for the upcoming phases, perigees and apogees, but
+ *    only when the set of dates actually changed since the last push.
  */
 
 var Moon = require('./moon_phase');
@@ -36,8 +36,30 @@ var PHASE_TITLES = {
   'zh-TW': ['新月', '上弦月', '滿月', '下弦月'],
 };
 
+// A full moon close to the Earth takes this title instead of "Full Moon".
+var SUPERMOON_TITLES = {
+  en: 'Supermoon', fr: 'Super lune', de: 'Supermond', es: 'Superluna',
+  it: 'Superluna', pt: 'Superlua', 'zh-CN': '超级月亮', 'zh-TW': '超級月亮',
+};
+
+// Closest and farthest points of the Moon's orbit: [perigee, apogee].
+var APSIS_TITLES = {
+  en: ['Perigee', 'Apogee'],
+  fr: ['Périgée', 'Apogée'],
+  de: ['Perigäum', 'Apogäum'],
+  es: ['Perigeo', 'Apogeo'],
+  it: ['Perigeo', 'Apogeo'],
+  pt: ['Perigeu', 'Apogeu'],
+  'zh-CN': ['近地点', '远地点'],
+  'zh-TW': ['近地點', '遠地點'],
+};
+
+// Thousands separator for the distances.
+var THOUSANDS = { en: ',', fr: ' ', de: '.', es: '.', it: '.', pt: '.', 'zh-CN': ',', 'zh-TW': ',' };
+
 // publishedMedia names declared in package.json (referenced as app://images/NAME).
 var PHASE_ICON_NAME = ['MOON_NEW', 'MOON_FIRST', 'MOON_FULL', 'MOON_LAST'];
+var APSIS_ICON_NAME = ['MOON_PERIGEE', 'MOON_APOGEE'];
 
 // Safe localStorage access: if it is unavailable, the app simply degrades to
 // always fetching/pushing (the pre-optimization behavior) instead of crashing.
@@ -111,6 +133,12 @@ function longDate(epoch) {
   }
 }
 
+// Distance rounded to the km with the language's grouping, e.g. "356 979 km".
+function formatKm(km) {
+  var digits = '' + Math.round(km);
+  return digits.replace(/\B(?=(\d{3})+$)/g, THOUSANDS[pickLang()]) + ' km';
+}
+
 function sendHemisphere(southern) {
   Pebble.sendAppMessage({ Hemisphere: southern ? 1 : 0 },
     function () { log('hemisphere sent (' + (southern ? 'S' : 'N') + ')'); },
@@ -147,51 +175,73 @@ function updateHemisphere() {
     { timeout: 15000, maximumAge: HEMI_TTL });
 }
 
+/** A timeline pin in the app's colours. */
+function moonPin(id, time, title, body, iconName) {
+  var iconUri = 'app://images/' + iconName;
+  return {
+    id: id,
+    time: new Date(time * 1000).toISOString(),
+    layout: {
+      type: 'genericPin',
+      title: title,
+      body: body,
+      tinyIcon: iconUri,
+      largeIcon: iconUri,
+      backgroundColor: '#001E41',
+      primaryColor: '#FFFFFF',
+    },
+  };
+}
+
 /**
- * Push timeline pins for the upcoming phases, but skip the network entirely
- * when the dates are unchanged since the last successful push.
+ * Push timeline pins for the upcoming phases, and for the perigees and apogees
+ * falling among them, but skip the network entirely when nothing changed since
+ * the last successful push.
  */
 function pushMoonPins() {
   var now = Math.floor(Date.now() / 1000);
   var events = Moon.upcoming(now, 8);
+  var apsides = Moon.apsides(now, events[events.length - 1].time);
   var lang = pickLang();
   var southern = lsGet('hemi') === '1';
   // Include language and hemisphere so changing either re-pushes matching pins.
   var sig = lang + (southern ? 'S' : 'N') + '|' +
-            events.map(function (e) { return e.type + '@' + e.time; }).join(',');
+            events.map(function (e) {
+              return e.type + (e.supermoon ? 'S' : '') + '@' + e.time;
+            }).join(',') + '|' +
+            apsides.map(function (a) {
+              return (a.perigee ? 'P' : 'A') + '@' + a.time;
+            }).join(',');
 
   if (lsGet('pinSig') === sig) {
     log('pins unchanged; skipping push');
     return;
   }
 
-  var titles = PHASE_TITLES[lang];
-  var pending = events.length;
-  var ok = 0;
-  events.forEach(function (ev) {
+  var pins = events.map(function (ev) {
     // Southern hemisphere mirrors the quarters: swap first/last quarter icons
     // (new and full are symmetric).
     var iconType = ev.type;
     if (southern && ev.type === 1) iconType = 3;
     else if (southern && ev.type === 3) iconType = 1;
-    var iconUri = 'app://images/' + PHASE_ICON_NAME[iconType];
-    var pin = {
-      id: 'moon-' + ev.time,
-      time: new Date(ev.time * 1000).toISOString(),
-      layout: {
-        type: 'genericPin',
-        title: titles[ev.type],
-        body: longDate(ev.time),
-        tinyIcon: iconUri,
-        largeIcon: iconUri,
-        backgroundColor: '#001E41',
-        primaryColor: '#FFFFFF',
-      },
-    };
+    // A supermoon owes its name to the distance, so the pin gives it.
+    var title = ev.supermoon ? SUPERMOON_TITLES[lang] : PHASE_TITLES[lang][ev.type];
+    var body = longDate(ev.time) + (ev.supermoon ? '\n' + formatKm(ev.distance) : '');
+    return moonPin('moon-' + ev.time, ev.time, title, body, PHASE_ICON_NAME[iconType]);
+  }).concat(apsides.map(function (a) {
+    var kind = a.perigee ? 0 : 1;
+    return moonPin('moon-' + (a.perigee ? 'perigee-' : 'apogee-') + a.time, a.time,
+                   APSIS_TITLES[lang][kind], longDate(a.time) + '\n' + formatKm(a.distance),
+                   APSIS_ICON_NAME[kind]);
+  }));
+
+  var pending = pins.length;
+  var ok = 0;
+  pins.forEach(function (pin) {
     timeline.insertUserPin(pin, function (status) {
       log('pin ' + pin.id + ' -> ' + status);
       if (status >= 200 && status < 300) ok++;
-      if (--pending === 0 && ok === events.length) {
+      if (--pending === 0 && ok === pins.length) {
         lsSet('pinSig', sig);  // only cache when all succeeded
       }
     });

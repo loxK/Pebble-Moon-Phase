@@ -31,8 +31,27 @@ typedef enum {
 /** A single upcoming phase event. */
 typedef struct {
   MoonPhaseType type;
-  time_t time;  //!< UTC epoch of the event.
+  time_t time;           //!< UTC epoch of the event.
+  int32_t distance_km;   //!< Earth-Moon distance at that instant, centre to centre.
 } MoonPhaseEvent;
+
+/**
+ * Range the Earth-Moon distance stays within: the closest perigee and the
+ * farthest apogee of the century are a few hundred km inside it.
+ */
+#define MOON_DISTANCE_MIN_KM 356400
+#define MOON_DISTANCE_MAX_KM 406700
+
+/**
+ * A full moon closer than this is a supermoon. There is no official rule; this
+ * is the timeanddate.com convention.
+ */
+#define MOON_SUPERMOON_KM 360000
+
+/** Whether `event` is a full moon close enough to count as a supermoon. */
+static inline bool moon_phase_is_supermoon(const MoonPhaseEvent *event) {
+  return event->type == MOON_PHASE_FULL && event->distance_km < MOON_SUPERMOON_KM;
+}
 
 /** Current state of the Moon, for rendering. */
 typedef struct {
@@ -61,8 +80,18 @@ double mp_cos_deg(double deg);
 MoonState moon_phase_state(time_t now);
 
 /**
+ * Earth-Moon distance at the given UTC time, in km, centre to centre.
+ *
+ * Meeus ch. 47 (the distance terms of table 47.A), good to a few tens of km.
+ */
+int32_t moon_distance_km(time_t t);
+
+/** Whether the Moon is coming closer to the Earth at the given UTC time. */
+bool moon_is_approaching(time_t t);
+
+/**
  * Fill an array with the next `count` principal phase events occurring strictly
- * after `now`, in chronological order.
+ * after `now`, in chronological order, each with the distance at its instant.
  *
  * @param now UTC epoch.
  * @param events Output array, must hold at least `count` elements.

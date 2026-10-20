@@ -91,7 +91,7 @@ static bool prv_describe_day(const GlanceContext *ctx, const MoonPhaseEvent *eve
       // against that target its truncated day count is exactly the number of
       // calendar days left.
       snprintf(subtitle, subtitle_size, "%s{time_until(%ld)|format(>2d:'%s','%s')}",
-               i18n_glance_phase(ctx->lang, events[i].type, true),
+               i18n_glance_phase(ctx->lang, i18n_event_name(&events[i]), true),
                (long)prv_day_end(events[i].time),
                i18n_glance_in_days(ctx->lang),
                i18n_glance_tomorrow(ctx->lang));
@@ -103,7 +103,7 @@ static bool prv_describe_day(const GlanceContext *ctx, const MoonPhaseEvent *eve
     if (events[i].time >= day_begin) {
       // The phase falls on this very day: name it, and show it exactly.
       snprintf(subtitle, subtitle_size, "%s",
-               i18n_glance_phase(ctx->lang, events[i].type, false));
+               i18n_glance_phase(ctx->lang, i18n_event_name(&events[i]), false));
       *icon_out = prv_icon_for(PHASE_FRACTION[events[i].type & 3], ctx->southern);
       return true;
     }

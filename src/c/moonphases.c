@@ -20,8 +20,11 @@
 
 #define PERSIST_KEY_HEMISPHERE 1
 
-// Number of upcoming phase events kept for the main screen and the list.
+// Number of upcoming phase events, one card each.
 #define EVENT_COUNT 8
+
+// Vertical slide between two cards.
+#define SLIDE_DURATION_MS 300
 
 // Colors. The phase screen uses a navy "night sky" background on color
 // displays (black on B/W, where no blue is available); the Moon and text are
@@ -34,11 +37,13 @@
 // ----------------------------------------------------------------------------
 
 static Window *s_main_window;
-static Window *s_list_window;
 static Layer *s_main_layer;
-static MenuLayer *s_menu_layer;
+static bool s_visible;
 
 static MoonState s_state;
+static int32_t s_distance_now;
+static bool s_approaching_now;
+static bool s_approaching[EVENT_COUNT];  // at each event of s_events
 static MoonPhaseEvent s_events[EVENT_COUNT];
 
 // 0 = Northern hemisphere (default), 1 = Southern hemisphere.
@@ -47,10 +52,22 @@ static int s_southern;
 // Active UI language, derived from the system locale at launch.
 static Lang s_lang;
 
-// Screen height of the list window, used to pick launcher-style metrics.
-static int16_t s_screen_h;
+// Card on screen, an index into s_events. Card 0 draws tonight's Moon, the
+// others the shape of their own phase.
+static int s_card;
+
+// Phase name font, picked once the screen width and the language are known.
+static GFont s_name_font;
+
+// Slide from s_slide_from to s_card. s_slide_dir is +1 when the new card comes
+// up from below (DOWN), -1 when it comes down from above (UP).
+static Animation *s_slide_anim;
+static double s_slide_progress;  // 0..1, eased by the animation curve
+static int s_slide_from;
+static int s_slide_dir;
 
 // Launch animation: the lit area sweeps from new moon to the current phase.
+static Animation *s_launch_anim;
 static double s_anim_progress;  // 0..1 (eased), only meaningful while animating
 static bool s_animating;
 static bool s_did_animate;      // play once per launch, not on every appear
@@ -87,6 +104,8 @@ static int prv_local_day(time_t t) {
 static void prv_refresh_data(void) {
   time_t now = prv_now();
   s_state = moon_phase_state(now);
+  s_distance_now = moon_distance_km(now);
+  s_approaching_now = moon_is_approaching(now);
 
   // A principal phase should stay featured for the whole local day it falls on,
   // even after its exact instant has passed (people think in days, not minutes).
@@ -103,6 +122,7 @@ static void prv_refresh_data(void) {
   if (start > 2) start = 2;  // defensive: keep start + EVENT_COUNT within buf
   for (int i = 0; i < EVENT_COUNT; i++) {
     s_events[i] = buf[start + i];
+    s_approaching[i] = moon_is_approaching(s_events[i].time);
   }
 }
 
@@ -131,11 +151,22 @@ static void prv_format_relative(time_t event, char *buf, size_t len) {
 /**
  * Format the calendar date of an event into `buf` (localized). `abbrev` cuts
  * the month to three letters, for the places where a long name would run past
- * the edge: every row of the list, and the whole of a round screen.
+ * the edge.
  */
 static void prv_format_date(time_t event, bool abbrev, char *buf, size_t len) {
   struct tm t = *localtime(&event);
   i18n_date(s_lang, t.tm_mday, t.tm_mon, abbrev, buf, len);
+}
+
+/** Format the local time of an event into `buf`, following the watch's 12/24h setting. */
+static void prv_format_time(time_t event, char *buf, size_t len) {
+  struct tm t = *localtime(&event);
+  if (clock_is_24h_style()) {
+    snprintf(buf, len, "%02d:%02d", t.tm_hour, t.tm_min);
+  } else {
+    int h = t.tm_hour % 12;
+    snprintf(buf, len, "%d:%02d %s", h ? h : 12, t.tm_min, t.tm_hour < 12 ? "AM" : "PM");
+  }
 }
 
 // Integer square root (avoids the double libm sqrt, which is heavy on stack).
@@ -202,19 +233,150 @@ static int prv_draw_centered(GContext *ctx, const char *text, GFont font,
   return y + h;
 }
 
+/** Width left for the text on a card; the pager dots take the right edge. */
+static int prv_content_width(GRect b) {
+  return b.size.w - PBL_IF_ROUND_ELSE(0, 10);
+}
+
 /**
- * Draw the system "SELECT does something" affordance: a filled circle glued to
- * the right edge, vertically centered next to the SELECT button, mostly off the
- * screen so only a rounded bump shows -- exactly like the Health / Timeline UI.
- * Rendered in `fg` so it stays legible over the background.
+ * Progress of the Moon's sweep in the launch animation, eased in and out. It
+ * runs over the first half of the animation (~700 ms), and stays at 1 after.
  */
-static void prv_draw_select_hint(GContext *ctx, GRect b, GColor fg) {
-  int radius = PBL_IF_ROUND_ELSE(12, 13);
-  int off = PBL_IF_ROUND_ELSE((b.size.h >= 200 ? 4 : 1),
-                              (b.size.h >= 200 ? 4 : 8));
-  GPoint center = GPoint(b.size.w + off, b.size.h / 2);
+static double prv_launch_sweep(void) {
+  if (!s_animating) return 1.0;
+  double mp = s_anim_progress * 2.0;
+  if (mp > 1.0) mp = 1.0;
+  return mp * mp * (3.0 - 2.0 * mp);  // smoothstep
+}
+
+/** Earth-Moon distance shown with card `idx`: tonight's, or at the phase. */
+static int32_t prv_card_distance(int idx) {
+  return idx == 0 ? s_distance_now : s_events[idx].distance_km;
+}
+
+/** Whether the Moon is coming closer at the time card `idx` stands for. */
+static bool prv_card_approaching(int idx) {
+  return idx == 0 ? s_approaching_now : s_approaching[idx];
+}
+
+/** How close the Moon is, from 0 at the farthest apogee to 1 at the closest perigee. */
+static double prv_closeness(int32_t km) {
+  double v = (double)(MOON_DISTANCE_MAX_KM - km)
+           / (MOON_DISTANCE_MAX_KM - MOON_DISTANCE_MIN_KM);
+  return v < 0.0 ? 0.0 : v > 1.0 ? 1.0 : v;
+}
+
+#if defined(PBL_ROUND)
+/** Point at `radius` from `c` towards `angle` (0 points up, clockwise). */
+static GPoint prv_polar(GPoint c, int32_t angle, int radius) {
+  return GPoint(c.x + sin_lookup(angle) * radius / TRIG_MAX_RATIO,
+                c.y - cos_lookup(angle) * radius / TRIG_MAX_RATIO);
+}
+#endif
+
+/**
+ * Draw a small triangle, its left side or tip at `left`, pointing right while
+ * the Moon approaches (the gauge fills towards the right) and left otherwise.
+ * Larger screens pack their pixels tighter and get a larger one.
+ */
+static void prv_draw_direction(GContext *ctx, GRect b, GPoint left, bool approaching) {
+  bool large = b.size.h >= 200;
+  int depth = large ? 8 : 5;
+  int half = large ? 5 : 4;
+  int tip = approaching ? left.x + depth : left.x;
+  int back = approaching ? left.x : left.x + depth;
+  GPoint points[] = {GPoint(tip, left.y), GPoint(back, left.y - half), GPoint(back, left.y + half)};
+  GPath path = {.num_points = 3, .points = points};
+  gpath_draw_filled(ctx, &path);
+}
+
+/**
+ * Draw the distance gauge across the top of the screen, filled by `v` (see
+ * prv_closeness): a full gauge is a Moon at its closest. Round screens follow
+ * the bezel with an arc, where a straight bar would have no room.
+ *
+ * A tick marks the supermoon distance. It sticks out of the gauge, and turns
+ * to the background colour where the fill runs past it. A triangle past the
+ * near end tells whether the Moon is approaching.
+ */
+static void prv_draw_gauge(GContext *ctx, GRect b, double v, bool approaching) {
+  const double tick = prv_closeness(MOON_SUPERMOON_KM);
+  graphics_context_set_fill_color(ctx, COL_FG);
+#if defined(PBL_ROUND)
+  const int thickness = 4;
+  const int32_t start = DEG_TO_TRIGANGLE(-40);
+  const int32_t span = DEG_TO_TRIGANGLE(80);
+  GRect ring = grect_inset(b, GEdgeInsets(3));
+  graphics_context_set_fill_color(ctx, GColorCobaltBlue);
+  graphics_fill_radial(ctx, ring, GOvalScaleModeFitCircle, thickness, start, start + span);
+  if (v > 0.0) {
+    graphics_context_set_fill_color(ctx, COL_FG);
+    graphics_fill_radial(ctx, ring, GOvalScaleModeFitCircle, thickness,
+                         start, start + (int32_t)(span * v));
+  }
+
+  // The tick is a narrow slice of a ring running from the outer edge of the
+  // gauge inwards; the bezel leaves no room to stick out the other way.
+  const int32_t at = start + (int32_t)(span * tick);
+  const int32_t half = DEG_TO_TRIGANGLE(1);
+  graphics_context_set_fill_color(ctx, COL_FG);
+  graphics_fill_radial(ctx, ring, GOvalScaleModeFitCircle, thickness + 4, at - half, at + half);
+  if (v >= tick) {
+    graphics_context_set_fill_color(ctx, COL_BG);
+    graphics_fill_radial(ctx, ring, GOvalScaleModeFitCircle, thickness, at - half, at + half);
+  }
+
+  // Past the near end of the arc, 7 px further along it.
+  int mid = ring.size.w / 2 - thickness / 2;
+  GPoint at_end = prv_polar(grect_center_point(&ring),
+                            start + span + TRIG_MAX_ANGLE * 7 * 1000 / (6283 * mid), mid);
+  graphics_context_set_fill_color(ctx, COL_FG);
+  prv_draw_direction(ctx, b, GPoint(at_end.x - 2, at_end.y), approaching);
+#else
+  int cw = prv_content_width(b);
+  int w = cw * 3 / 5;
+  GRect track = GRect((cw - w) / 2, 4, w, 5);
+
+  // Past the near end of the bar.
+  prv_draw_direction(ctx, b, GPoint(track.origin.x + w + 3, track.origin.y + track.size.h / 2),
+                     approaching);
+
+#if defined(PBL_COLOR)
+  graphics_context_set_fill_color(ctx, GColorCobaltBlue);
+  graphics_fill_rect(ctx, track, 2, GCornersAll);
+#else
+  graphics_context_set_stroke_color(ctx, COL_FG);
+  graphics_draw_round_rect(ctx, track, 2);
+#endif
+  int filled = (int)(w * v);
+  if (filled > 0) {
+    graphics_context_set_fill_color(ctx, COL_FG);
+    graphics_fill_rect(ctx, GRect(track.origin.x, track.origin.y, filled, track.size.h),
+                       filled >= 4 ? 2 : 0, GCornersAll);
+  }
+
+  int tx = track.origin.x + (int)(w * tick);
+  graphics_context_set_fill_color(ctx, COL_FG);
+  graphics_fill_rect(ctx, GRect(tx, track.origin.y - 2, 2, track.size.h + 4), 0, GCornerNone);
+  if (v >= tick) {
+    graphics_context_set_fill_color(ctx, COL_BG);
+    graphics_fill_rect(ctx, GRect(tx, track.origin.y, 2, track.size.h), 0, GCornerNone);
+  }
+#endif
+}
+
+/**
+ * Draw the card position as a column of dots along the right edge, between the
+ * UP and DOWN buttons, the current card as the bigger dot.
+ */
+static void prv_draw_pager(GContext *ctx, GRect b, GColor fg) {
+  const int step = 7;
+  int x = b.size.w - PBL_IF_ROUND_ELSE(9, 5);
+  int y = b.size.h / 2 - (EVENT_COUNT - 1) * step / 2;
   graphics_context_set_fill_color(ctx, fg);
-  graphics_fill_circle(ctx, center, radius);
+  for (int i = 0; i < EVENT_COUNT; i++) {
+    graphics_fill_circle(ctx, GPoint(x, y + i * step), i == s_card ? 2 : 1);
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -314,6 +476,118 @@ static void prv_draw_shooting_star(GContext *ctx, GRect b) {
   }
 }
 
+/** Width of a single line of `text` set in `font`. */
+static int prv_text_width(const char *text, GFont font) {
+  return graphics_text_layout_get_content_size(
+      text, font, GRect(0, 0, 1000, 64),
+      GTextOverflowModeWordWrap, GTextAlignmentLeft).w;
+}
+
+/**
+ * Font for the phase names: the larger one only when all the names of the
+ * language fit on one line clear of the edges, so every card keeps the same
+ * size and the Moon does not shrink from one card to the next.
+ */
+static GFont prv_pick_name_font(int cw) {
+  GFont large = fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+  for (int name = 0; name < I18N_NAME_COUNT; name++) {
+    if (prv_text_width(i18n_phase_name(s_lang, name), large) > cw - 20) {
+      return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+    }
+  }
+  return large;
+}
+
+/**
+ * Draw card `idx` shifted down by `dy` pixels: the Moon, the phase name and,
+ * under it, a big line over a small one. The next phase reads as how far away
+ * it is over its date; the later ones as their date over their time. The sky is
+ * drawn underneath by the caller.
+ */
+static void prv_draw_card(GContext *ctx, GRect b, int idx, int dy) {
+  int cw = prv_content_width(b);
+  int cx = cw / 2;
+
+  // The phase name may still wrap to two lines in the smaller font; the layout
+  // (and the Moon above it) adapts instead of truncating. Larger screens have
+  // room for larger lines under the name too.
+  bool large_screen = b.size.h >= 200;
+  GFont f_name = s_name_font;
+  GFont f_big = fonts_get_system_font(large_screen ? FONT_KEY_GOTHIC_28_BOLD
+                                                   : FONT_KEY_GOTHIC_24_BOLD);
+  GFont f_small = fonts_get_system_font(large_screen ? FONT_KEY_GOTHIC_24
+                                                     : FONT_KEY_GOTHIC_18);
+  int big_h = large_screen ? 34 : 30;
+  int small_h = large_screen ? 30 : 24;
+
+  MoonPhaseEvent *ev = &s_events[idx];
+  const char *name_str = i18n_phase_name(s_lang, i18n_event_name(ev));
+  char big[24], small[24];
+  if (idx == 0) {
+    prv_format_relative(ev->time, big, sizeof(big));
+    prv_format_date(ev->time, PBL_IF_ROUND_ELSE(true, false), small, sizeof(small));
+  } else {
+    // A rectangular screen keeps the full month unless it overflows the line
+    // ("22 de septiembre"); a round one narrows too fast near the bottom.
+    bool abbrev = PBL_IF_ROUND_ELSE(true, false);
+    prv_format_date(ev->time, abbrev, big, sizeof(big));
+    if (!abbrev && prv_text_width(big, f_big) > cw) {
+      prv_format_date(ev->time, true, big, sizeof(big));
+    }
+    prv_format_time(ev->time, small, sizeof(small));
+  }
+
+  GSize name_sz = graphics_text_layout_get_content_size(
+      name_str, f_name, GRect(0, 0, cw, 72),
+      GTextOverflowModeWordWrap, GTextAlignmentCenter);
+  int name_h = name_sz.h;
+
+  // Text block sits at the bottom; the Moon fills the area above it.
+  int y_small = b.size.h - small_h - 2;
+  int y_big = y_small - big_h;
+  int y_name = y_big - name_h;
+  int moon_bottom = y_name - 2;
+
+  // Moon geometry, below the distance gauge.
+  const int moon_top = 12;
+  int moon_cy = moon_top + (moon_bottom - moon_top) / 2;
+  int max_r_w = cx - 8;
+  int max_r_h = (moon_bottom - moon_top - 4) / 2;
+  int r = max_r_w < max_r_h ? max_r_w : max_r_h;
+  if (r > 46) r = 46;
+  if (r < 18) r = 18;
+
+  // Launch animation: sweep the lit area from new moon to the current phase,
+  // and scale the disc in.
+  double frac = idx == 0 ? s_state.fraction : ev->type * 0.25;
+  int draw_r = r;
+  bool launching = s_animating && idx == 0;
+  if (launching) {
+    double me = prv_launch_sweep();
+    frac = s_state.fraction * me;
+    draw_r = (int)(r * (0.82 + 0.18 * me));
+  }
+  prv_draw_moon(ctx, GPoint(cx, moon_cy + dy), draw_r, frac, s_southern, COL_FG, COL_BG);
+
+  // During the launch animation the three lines stack in one after another,
+  // rising from the bottom (small line, then big line, then the phase name).
+  int off_name = dy, off_big = dy, off_small = dy;
+  bool vis_name = true, vis_big = true, vis_small = true;
+  if (launching) {
+    double p = s_anim_progress;
+    off_small = prv_line_anim(p, 0.50, 0.68, &vis_small);
+    off_big = prv_line_anim(p, 0.66, 0.84, &vis_big);
+    off_name = prv_line_anim(p, 0.82, 1.00, &vis_name);
+  }
+  if (vis_name) {
+    graphics_draw_text(ctx, name_str, f_name,
+                       GRect(0, y_name + off_name, cw, name_h + 6),
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+  }
+  if (vis_big) prv_draw_centered(ctx, big, f_big, cw, y_big + off_big, big_h);
+  if (vis_small) prv_draw_centered(ctx, small, f_small, cw, y_small + off_small, small_h);
+}
+
 static void prv_main_update(Layer *layer, GContext *ctx) {
   GRect b = layer_get_bounds(layer);
 
@@ -323,84 +597,32 @@ static void prv_main_update(Layer *layer, GContext *ctx) {
   prv_draw_shooting_star(ctx, b);
   graphics_context_set_text_color(ctx, COL_FG);
 
-  // The SELECT bump pokes in from the right edge; reserve a little room there.
-  int cw = b.size.w - PBL_IF_ROUND_ELSE(0, 10);
-  int cx = cw / 2;
-
-  // Next phase data.
-  MoonPhaseEvent *next = &s_events[0];
-  const char *name_str = i18n_phase_name(s_lang, next->type);
-  char relbuf[24], datebuf[24];
-  prv_format_relative(next->time, relbuf, sizeof(relbuf));
-  prv_format_date(next->time, PBL_IF_ROUND_ELSE(true, false), datebuf, sizeof(datebuf));
-
-  // The phase name uses the big font and wraps to two lines when long, so the
-  // layout (and the Moon above it) adapts instead of truncating.
-  GFont f_name = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-  GFont f_dans = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-  GFont f_date = fonts_get_system_font(FONT_KEY_GOTHIC_18);
-
-  GSize name_sz = graphics_text_layout_get_content_size(
-      name_str, f_name, GRect(0, 0, cw, 64),
-      GTextOverflowModeWordWrap, GTextAlignmentCenter);
-  int name_h = name_sz.h;
-
-  // Text block sits at the bottom; the Moon fills the area above it.
-  int y_date = b.size.h - 26;
-  int y_dans = y_date - 30;
-  int y_name = y_dans - name_h;
-  int moon_bottom = y_name - 2;
-
-  // Moon geometry.
-  int moon_cy = 6 + moon_bottom / 2;
-  int max_r_w = cx - 8;
-  int max_r_h = (moon_bottom - 10) / 2;
-  int r = max_r_w < max_r_h ? max_r_w : max_r_h;
-  if (r > 46) r = 46;
-  if (r < 18) r = 18;
-
-  // Launch animation: sweep the lit area from new moon to the current phase,
-  // and scale the disc in.
-  double frac = s_state.fraction;
-  int draw_r = r;
-  if (s_animating) {
-    double p = s_anim_progress;
-    double mp = p * 2.0;            // the Moon sweeps over the first half (~700 ms)
-    if (mp > 1.0) mp = 1.0;
-    double me = mp * mp * (3.0 - 2.0 * mp);  // smoothstep ease-in-out
-    frac = s_state.fraction * me;
-    draw_r = (int)(r * (0.82 + 0.18 * me));
+  // While sliding, the outgoing card leaves on one side as the incoming one
+  // enters from the other; the sky stays put behind both, and the gauge runs
+  // from one distance to the other.
+  double closeness = prv_closeness(prv_card_distance(s_card));
+  if (s_slide_anim) {
+    int h = b.size.h;
+    int shift = (int)(s_slide_progress * h);
+    prv_draw_card(ctx, b, s_slide_from, -s_slide_dir * shift);
+    prv_draw_card(ctx, b, s_card, s_slide_dir * (h - shift));
+    double from = prv_closeness(prv_card_distance(s_slide_from));
+    closeness = from + (closeness - from) * s_slide_progress;
+  } else {
+    prv_draw_card(ctx, b, s_card, 0);
   }
-  prv_draw_moon(ctx, GPoint(cx, moon_cy), draw_r, frac, s_southern, COL_FG, COL_BG);
 
-  // Name, "Dans X jours", date. During the launch animation the three lines
-  // stack in one after another, rising from the bottom (date, then "Dans X",
-  // then the phase name).
-  int off_name = 0, off_dans = 0, off_date = 0;
-  bool vis_name = true, vis_dans = true, vis_date = true;
-  if (s_animating) {
-    double p = s_anim_progress;
-    off_date = prv_line_anim(p, 0.50, 0.68, &vis_date);
-    off_dans = prv_line_anim(p, 0.66, 0.84, &vis_dans);
-    off_name = prv_line_anim(p, 0.82, 1.00, &vis_name);
-  }
-  if (vis_name) {
-    graphics_draw_text(ctx, name_str, f_name,
-                       GRect(0, y_name + off_name, cw, name_h + 6),
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-  }
-  if (vis_dans) prv_draw_centered(ctx, relbuf, f_dans, cw, y_dans + off_dans, 30);
-  if (vis_date) prv_draw_centered(ctx, datebuf, f_date, cw, y_date + off_date, 24);
-
-  // SELECT affordance (Health / Timeline style), white over the dark UI.
-  prv_draw_select_hint(ctx, b, COL_FG);
+  prv_draw_gauge(ctx, b, closeness * prv_launch_sweep(), prv_card_approaching(s_card));
+  prv_draw_pager(ctx, b, COL_FG);
 }
 
-static void prv_select_click(ClickRecognizerRef recognizer, void *context);
+static void prv_up_click(ClickRecognizerRef recognizer, void *context);
+static void prv_down_click(ClickRecognizerRef recognizer, void *context);
 static void prv_select_long_click(ClickRecognizerRef recognizer, void *context);
 
 static void prv_click_config(void *context) {
-  window_single_click_subscribe(BUTTON_ID_SELECT, prv_select_click);
+  window_single_click_subscribe(BUTTON_ID_UP, prv_up_click);
+  window_single_click_subscribe(BUTTON_ID_DOWN, prv_down_click);
   window_long_click_subscribe(BUTTON_ID_SELECT, 0, prv_select_long_click, NULL);
 }
 
@@ -410,6 +632,7 @@ static void prv_anim_update(Animation *anim, const AnimationProgress progress) {
 }
 
 static void prv_anim_teardown(Animation *anim) {
+  s_launch_anim = NULL;
   s_animating = false;
   if (s_main_layer) layer_mark_dirty(s_main_layer);  // settle on the real phase
 }
@@ -429,11 +652,7 @@ static void prv_shoot_update(Animation *anim, const AnimationProgress progress) 
 static void prv_shoot_teardown(Animation *anim) {
   s_shoot_active = false;
   if (s_main_layer) layer_mark_dirty(s_main_layer);
-  // The list window sits on top of this one while it is open; the sky is not
-  // visible then and needs no further passes.
-  if (window_stack_get_top_window() == s_main_window) {
-    prv_shoot_schedule();
-  }
+  if (s_visible) prv_shoot_schedule();
 }
 
 static const AnimationImplementation s_shoot_impl = {
@@ -471,8 +690,54 @@ static void prv_shoot_schedule(void) {
   prv_shoot_schedule_in(prv_rand_range(SHOOT_WAIT_MIN_MS, SHOOT_WAIT_MAX_MS));
 }
 
+static void prv_slide_update(Animation *anim, const AnimationProgress progress) {
+  s_slide_progress = (double)progress / ANIMATION_NORMALIZED_MAX;
+  if (s_main_layer) layer_mark_dirty(s_main_layer);
+}
+
+static void prv_slide_teardown(Animation *anim) {
+  s_slide_anim = NULL;
+  if (s_main_layer) layer_mark_dirty(s_main_layer);
+}
+
+static const AnimationImplementation s_slide_impl = {
+  .update = prv_slide_update,
+  .teardown = prv_slide_teardown,
+};
+
+/** Slide to the card `dir` steps away, if there is one. */
+static void prv_go(int dir) {
+  int to = s_card + dir;
+  if (to < 0 || to >= EVENT_COUNT) return;
+
+  // A press cuts short whatever is still moving, so the slide always starts
+  // from a settled card.
+  animation_unschedule(s_launch_anim);
+  animation_unschedule(s_slide_anim);
+
+  s_slide_from = s_card;
+  s_slide_dir = dir;
+  s_slide_progress = 0.0;
+  s_card = to;
+
+  s_slide_anim = animation_create();
+  animation_set_duration(s_slide_anim, SLIDE_DURATION_MS);
+  animation_set_curve(s_slide_anim, AnimationCurveEaseInOut);
+  animation_set_implementation(s_slide_anim, &s_slide_impl);
+  animation_schedule(s_slide_anim);
+}
+
+static void prv_up_click(ClickRecognizerRef recognizer, void *context) {
+  prv_go(-1);
+}
+
+static void prv_down_click(ClickRecognizerRef recognizer, void *context) {
+  prv_go(1);
+}
+
 static void prv_main_appear(Window *window) {
-  if (s_did_animate) {  // coming back from the list
+  s_visible = true;
+  if (s_did_animate) {  // shown again after being hidden
     prv_shoot_schedule();
     return;
   }
@@ -481,14 +746,15 @@ static void prv_main_appear(Window *window) {
   s_animating = true;
   s_anim_progress = 0.0;
 
-  Animation *anim = animation_create();
-  animation_set_duration(anim, 1400);
-  animation_set_curve(anim, AnimationCurveLinear);  // per-component easing below
-  animation_set_implementation(anim, &s_anim_impl);
-  animation_schedule(anim);
+  s_launch_anim = animation_create();
+  animation_set_duration(s_launch_anim, 1400);
+  animation_set_curve(s_launch_anim, AnimationCurveLinear);  // per-component easing below
+  animation_set_implementation(s_launch_anim, &s_anim_impl);
+  animation_schedule(s_launch_anim);
 }
 
 static void prv_main_disappear(Window *window) {
+  s_visible = false;
   if (s_shoot_timer) {
     app_timer_cancel(s_shoot_timer);
     s_shoot_timer = NULL;
@@ -499,6 +765,7 @@ static void prv_main_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
 
+  s_name_font = prv_pick_name_font(prv_content_width(bounds));
   s_main_layer = layer_create(bounds);
   layer_set_update_proc(s_main_layer, prv_main_update);
   layer_add_child(root, s_main_layer);
@@ -509,112 +776,6 @@ static void prv_main_load(Window *window) {
 static void prv_main_unload(Window *window) {
   layer_destroy(s_main_layer);
   s_main_layer = NULL;  // a pending animation tick checks this guard
-}
-
-// ----------------------------------------------------------------------------
-// List window (upcoming phases)
-// ----------------------------------------------------------------------------
-
-static uint16_t prv_menu_num_rows(MenuLayer *menu, uint16_t section, void *ctx) {
-  return EVENT_COUNT;
-}
-
-// Launcher-style row metrics, mirroring the system app launcher.
-static int16_t prv_menu_cell_height(MenuLayer *menu, MenuIndex *index, void *ctx) {
-#if defined(PBL_ROUND)
-  MenuIndex sel = menu_layer_get_selected_index(menu);
-  bool focused = (index->row == sel.row);
-  if (s_screen_h >= 200) return focused ? 55 : 45;
-  return focused ? 52 : 38;
-#else
-  return s_screen_h >= 200 ? 50 : 42;
-#endif
-}
-
-/** Title font, matching the launcher (bigger on Emery-class displays). */
-static GFont prv_title_font(void) {
-  return fonts_get_system_font(s_screen_h >= 200 ? FONT_KEY_GOTHIC_24_BOLD
-                                                 : FONT_KEY_GOTHIC_18_BOLD);
-}
-
-static void prv_menu_draw_row(GContext *ctx, const Layer *cell, MenuIndex *index,
-                              void *data) {
-  GRect b = layer_get_bounds(cell);
-  bool hl = menu_cell_layer_is_highlighted(cell);
-  // Launcher convention: black icon/text on white, white over the highlight.
-  GColor fg = hl ? GColorWhite : GColorBlack;
-  GColor bg = hl ? COL_BG : GColorWhite;
-
-  MoonPhaseEvent *ev = &s_events[index->row];
-
-  int inset = PBL_IF_ROUND_ELSE(23, (s_screen_h >= 200 ? 10 : 6));
-  int margin = (s_screen_h >= 200) ? 9 : 5;
-
-  // 25x25 icon slot, left-aligned and vertically centered.
-  int icon_cx = b.origin.x + inset + 12;
-  int icon_cy = b.origin.y + b.size.h / 2;
-  prv_draw_moon(ctx, GPoint(icon_cx, icon_cy), 11, ev->type * 0.25,
-                s_southern, fg, bg);
-
-  // Title (phase name) + subtitle (date · relative).
-  char datebuf[24], relbuf[24], sub[56];
-  prv_format_date(ev->time, true, datebuf, sizeof(datebuf));
-  prv_format_relative(ev->time, relbuf, sizeof(relbuf));
-  snprintf(sub, sizeof(sub), "%s · %s", datebuf, relbuf);
-
-  int text_x = b.origin.x + inset + 25 + margin;
-  int text_w = b.size.w - (text_x - b.origin.x) - 4;
-  int title_h = (s_screen_h >= 200) ? 28 : 22;
-  int sub_h = (s_screen_h >= 200) ? 20 : 16;
-  int top = b.origin.y + (b.size.h - title_h - sub_h) / 2;
-
-  graphics_context_set_text_color(ctx, fg);
-  graphics_draw_text(ctx, i18n_phase_name(s_lang, ev->type), prv_title_font(),
-                     GRect(text_x, top - 4, text_w, title_h),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, sub,
-                     fonts_get_system_font((s_screen_h >= 200) ? FONT_KEY_GOTHIC_18
-                                                               : FONT_KEY_GOTHIC_14),
-                     GRect(text_x, top + title_h - 6, text_w, sub_h),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-}
-
-static void prv_list_load(Window *window) {
-  Layer *root = window_get_root_layer(window);
-  GRect bounds = layer_get_bounds(root);
-  s_screen_h = bounds.size.h;
-
-  s_menu_layer = menu_layer_create(bounds);
-  menu_layer_set_callbacks(s_menu_layer, NULL, (MenuLayerCallbacks) {
-    .get_num_rows = prv_menu_num_rows,
-    .get_cell_height = prv_menu_cell_height,
-    .draw_row = prv_menu_draw_row,
-  });
-  menu_layer_set_normal_colors(s_menu_layer, GColorWhite, GColorBlack);
-  menu_layer_set_highlight_colors(s_menu_layer, COL_BG, GColorWhite);
-#if defined(PBL_ROUND)
-  menu_layer_set_center_focused(s_menu_layer, true);
-#endif
-  menu_layer_set_click_config_onto_window(s_menu_layer, window);
-  layer_add_child(root, menu_layer_get_layer(s_menu_layer));
-}
-
-static void prv_list_unload(Window *window) {
-  menu_layer_destroy(s_menu_layer);
-  s_menu_layer = NULL;  // prv_inbox_received checks this; avoid a dangling deref
-  window_destroy(s_list_window);
-  s_list_window = NULL;
-}
-
-static void prv_select_click(ClickRecognizerRef recognizer, void *context) {
-  if (s_list_window) return;
-  s_list_window = window_create();
-  window_set_background_color(s_list_window, GColorWhite);
-  window_set_window_handlers(s_list_window, (WindowHandlers) {
-    .load = prv_list_load,
-    .unload = prv_list_unload,
-  });
-  window_stack_push(s_list_window, true);
 }
 
 static void prv_select_long_click(ClickRecognizerRef recognizer, void *context) {
@@ -634,7 +795,6 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
     s_southern = hemi->value->int32 ? 1 : 0;
     persist_write_int(PERSIST_KEY_HEMISPHERE, s_southern);
     if (s_main_layer) layer_mark_dirty(s_main_layer);
-    if (s_menu_layer) layer_mark_dirty(menu_layer_get_layer(s_menu_layer));
   }
 }
 
@@ -647,7 +807,6 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
 static void prv_tick(struct tm *tick_time, TimeUnits units_changed) {
   prv_refresh_data();
   if (s_main_layer) layer_mark_dirty(s_main_layer);
-  if (s_menu_layer) menu_layer_reload_data(s_menu_layer);
 }
 
 #if PBL_API_EXISTS(app_touch_navigation_enable)
@@ -674,9 +833,9 @@ static void prv_init(void) {
   app_message_open(64, 64);
   tick_timer_service_subscribe(HOUR_UNIT, prv_tick);
 
-  // Third-party apps get no touch input until they ask for it: the phase list
-  // scrolls under the finger and the phase screen answers swipes only once this
-  // is set. The guard keeps the build going on SDKs without the call.
+  // Third-party apps get no touch input until they ask for it: a vertical swipe
+  // turns into UP or DOWN, and so moves between cards, only once this is set.
+  // The guard keeps the build going on SDKs without the call.
 #if PBL_API_EXISTS(app_touch_navigation_enable)
   if (prv_touch_nav_is_safe()) app_touch_navigation_enable(true);
 #endif

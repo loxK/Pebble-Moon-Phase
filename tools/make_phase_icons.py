@@ -4,8 +4,9 @@
 # dependencies = ["pillow"]
 # ///
 #
-# Draw the eight lunation icons into resources/images/timeline/, at the three
-# sizes the timeline pins and the launcher glance ask for.
+# Draw the eight lunation icons, and the perigee and apogee ones, into
+# resources/images/timeline/, at the three sizes the timeline pins and the
+# launcher glance ask for.
 #
 # The disc is opaque -- lit side white, dark side black, black rim -- because
 # the launcher draws glance icons untinted on white rows. Shapes are rendered
@@ -19,7 +20,7 @@ import math
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 OUT = Path(__file__).resolve().parent.parent / "resources" / "images" / "timeline"
 
@@ -64,7 +65,7 @@ def terminator(fraction):
 
 
 def render(fraction, size, rim):
-    """One icon, oversampled and reduced to `size` square."""
+    """One icon, oversampled: luma and alpha planes `SUPERSAMPLE` times `size`."""
     threshold, waxing = terminator(fraction)
     span = size * SUPERSAMPLE
     centre = span / 2.0
@@ -95,9 +96,41 @@ def render(fraction, size, rim):
             if (x > threshold) if waxing else (x < threshold):
                 lit[px, py] = 255
 
+    return luma, alpha
+
+
+def reduce(luma, alpha, size):
     box = (size, size)
     return Image.merge("LA", (luma.resize(box, Image.BOX),
                               alpha.resize(box, Image.BOX))).convert("RGBA")
+
+
+def render_apsis(perigee, size, rim):
+    """
+    A full Moon with a black chevron on each side of its centre: pointing in at
+    the perigee, where the Moon comes closest, and out at the apogee.
+    """
+    luma, alpha = render(PHASES["full"], size, rim)
+    draw = ImageDraw.Draw(luma)
+    s = SUPERSAMPLE
+    centre = size * s / 2.0
+    gap = 0.12 * size * s          # from the centre to the nearest point of a chevron
+    depth = 0.13 * size * s
+    half = 0.2 * size * s
+    width = max(2, round(0.09 * size * s))
+    for side in (-1, 1):
+        near = centre + side * gap
+        far = centre + side * (gap + depth)
+        tip, back = (near, far) if perigee else (far, near)
+        draw.line([(back, centre - half), (tip, centre), (back, centre + half)],
+                  fill=0, width=width, joint="curve")
+    return luma, alpha
+
+
+def save(img, path):
+    before = path.read_bytes() if path.exists() else None
+    img.save(path, optimize=True)
+    print(f"{path.name:34} {'unchanged' if path.read_bytes() == before else 'written'}")
 
 
 def main():
@@ -105,10 +138,10 @@ def main():
         sys.exit(f"missing {OUT}")
     for phase, fraction in PHASES.items():
         for name, (size, rim) in SIZES.items():
-            path = OUT / f"moon_{phase}_{name}.png"
-            before = path.read_bytes() if path.exists() else None
-            render(fraction, size, rim).save(path, optimize=True)
-            print(f"{path.name:34} {'unchanged' if path.read_bytes() == before else 'written'}")
+            save(reduce(*render(fraction, size, rim), size), OUT / f"moon_{phase}_{name}.png")
+    for apsis, perigee in (("perigee", True), ("apogee", False)):
+        for name, (size, rim) in SIZES.items():
+            save(reduce(*render_apsis(perigee, size, rim), size), OUT / f"moon_{apsis}_{name}.png")
 
 
 if __name__ == "__main__":

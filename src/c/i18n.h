@@ -7,6 +7,7 @@
 #pragma once
 
 #include <pebble.h>
+#include "moon_phase.h"
 
 /**
  * Lightweight localization for the Moon Phase app.
@@ -31,15 +32,23 @@ typedef enum {
 /** Detect the active language from the watch system locale. */
 Lang i18n_lang(void);
 
-/** Localized name of a principal phase (type 0..3, see MoonPhaseType). */
-const char *i18n_phase_name(Lang lang, int phase_type);
+// Phase names are indexed by MoonPhaseType, followed by the supermoon, which
+// takes the place of "Full Moon" when the Moon is close to the Earth.
+#define I18N_SUPERMOON 4
+#define I18N_NAME_COUNT 5
+
+/** Localized name of a phase (0..3, see MoonPhaseType, or I18N_SUPERMOON). */
+const char *i18n_phase_name(Lang lang, int name);
 
 /**
  * Shortened phase name for the launcher glance, whose subtitle is a single
  * clipped line. `waiting` picks the tighter form used while the line also
  * carries the countdown to the phase.
  */
-const char *i18n_glance_phase(Lang lang, int phase_type, bool waiting);
+const char *i18n_glance_phase(Lang lang, int name, bool waiting);
+
+/** Name index for a phase event: its MoonPhaseType, or I18N_SUPERMOON. */
+int i18n_event_name(const MoonPhaseEvent *event);
 
 /**
  * Countdown branches of the glance template string. Both keep the firmware's

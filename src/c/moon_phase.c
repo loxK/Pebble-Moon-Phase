@@ -210,6 +210,69 @@ MoonState moon_phase_state(time_t now) {
   return state;
 }
 
+// Distance terms of Meeus table 47.A: multiples of the mean elongation D, the
+// Sun's mean anomaly M, the Moon's mean anomaly M' and its argument of
+// latitude F, with the coefficient in metres. Rows whose distance term is zero
+// are left out.
+typedef struct {
+  int8_t d, m, mp, f;
+  int32_t r;
+} DistanceTerm;
+
+static const DistanceTerm DISTANCE_TERMS[] = {
+  {0, 0, 1, 0, -20905355}, {2, 0, -1, 0, -3699111}, {2, 0, 0, 0, -2955968},
+  {0, 0, 2, 0, -569925},   {0, 1, 0, 0, 48888},     {0, 0, 0, 2, -3149},
+  {2, 0, -2, 0, 246158},   {2, -1, -1, 0, -152138}, {2, 0, 1, 0, -170733},
+  {2, -1, 0, 0, -204586},  {0, 1, -1, 0, -129620},  {1, 0, 0, 0, 108743},
+  {0, 1, 1, 0, 104755},    {2, 0, 0, -2, 10321},    {0, 0, 1, -2, 79661},
+  {4, 0, -1, 0, -34782},   {0, 0, 3, 0, -23210},    {4, 0, -2, 0, -21636},
+  {2, 1, -1, 0, 24208},    {2, 1, 0, 0, 30824},     {1, 0, -1, 0, -8379},
+  {1, 1, 0, 0, -16675},    {2, -1, 1, 0, -12831},   {2, 0, 2, 0, -10445},
+  {4, 0, 0, 0, -11650},    {2, 0, -3, 0, 14403},    {0, 1, -2, 0, -7003},
+  {2, -1, -2, 0, 10056},   {1, 0, 1, 0, 6322},      {2, -2, 0, 0, -9884},
+  {0, 1, 2, 0, 5751},      {2, -2, -1, 0, -4950},   {2, 0, 1, -2, 4130},
+  {4, -1, -1, 0, -3958},   {3, 0, -1, 0, 3258},     {2, 1, 1, 0, 2616},
+  {4, -1, -2, 0, -1897},   {0, 2, -1, 0, -2117},    {2, 2, -1, 0, 2354},
+  {4, 0, 1, 0, -1423},     {0, 0, 4, 0, -1117},     {4, -1, 0, 0, -1571},
+  {1, 0, -2, 0, -1739},    {0, 0, 2, -2, -4421},    {0, 2, 1, 0, 1165},
+  {2, 0, -1, -2, 8752},
+};
+
+int32_t moon_distance_km(time_t t) {
+  // Julian centuries since J2000. Delta-T (~70 s) is ignored, as for the phases.
+  double T = (prv_jd_from_epoch(t) - 2451545.0) / 36525.0;
+  double T2 = T * T;
+  double T3 = T2 * T;
+  double T4 = T3 * T;
+
+  double D = fmod(297.8501921 + 445267.1114034 * T - 0.0018819 * T2
+                  + T3 / 545868.0 - T4 / 113065000.0, 360.0);
+  double M = fmod(357.5291092 + 35999.0502909 * T - 0.0001536 * T2
+                  + T3 / 24490000.0, 360.0);
+  double Mp = fmod(134.9633964 + 477198.8675055 * T + 0.0087414 * T2
+                   + T3 / 69699.0 - T4 / 14712000.0, 360.0);
+  double F = fmod(93.2720950 + 483202.0175233 * T - 0.0036539 * T2
+                  - T3 / 3526000.0 + T4 / 863310000.0, 360.0);
+  // Terms involving M shrink with the eccentricity of the Earth's orbit.
+  double E = 1.0 - 0.002516 * T - 0.0000074 * T2;
+
+  double sum = 0.0;
+  for (unsigned i = 0; i < sizeof(DISTANCE_TERMS) / sizeof(DISTANCE_TERMS[0]); i++) {
+    const DistanceTerm *term = &DISTANCE_TERMS[i];
+    double c = term->r;
+    if (term->m == 1 || term->m == -1) c *= E;
+    else if (term->m == 2 || term->m == -2) c *= E * E;
+    sum += c * mp_cos_deg(term->d * D + term->m * M + term->mp * Mp + term->f * F);
+  }
+  return (int32_t)(385000.56 + sum / 1000.0 + 0.5);
+}
+
+bool moon_is_approaching(time_t t) {
+  // Within half an hour of an apsis the change over the hour drops under the
+  // km rounding, and the Moon reads as receding.
+  return moon_distance_km(t + 3600) < moon_distance_km(t);
+}
+
 void moon_phase_upcoming(time_t now, MoonPhaseEvent *events, int count) {
   double jd = prv_jd_from_epoch(now);
   double k_base = floor(prv_k_estimate(now)) - 1.0;
@@ -223,6 +286,7 @@ void moon_phase_upcoming(time_t now, MoonPhaseEvent *events, int count) {
       if (t > jd) {
         events[found].type = (MoonPhaseType)q;
         events[found].time = prv_epoch_from_jd(t);
+        events[found].distance_km = moon_distance_km(events[found].time);
         found++;
       }
     }

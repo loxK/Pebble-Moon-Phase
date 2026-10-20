@@ -207,28 +207,27 @@ static double prv_k_estimate(time_t now) {
 
 MoonState moon_phase_state(time_t now) {
   double jd = prv_jd_from_epoch(now);
-  double k0 = floor(prv_k_estimate(now));
 
-  // Find the new moon bracketing `now`: the latest new moon <= jd and the next.
-  double last_new = 0.0;
-  double next_new = 0.0;
-  for (double k = k0 - 2.0; k <= k0 + 2.0; k += 1.0) {
-    double t = prv_phase_jd(k);
-    if (t <= jd && (last_new == 0.0 || t > last_new)) {
-      last_new = t;
-    }
-    if (t > jd && (next_new == 0.0 || t < next_new)) {
-      next_new = t;
-    }
+  // Bracket `now` between two principal phases, starting a quarter before the
+  // mean one: the true phases stay within a day of the mean ones, well inside
+  // a quarter, so a couple of steps either way always find it.
+  double q = floor((jd - 2451550.09766) / SYNODIC_MONTH * 4.0) / 4.0 - 0.25;
+  double t_a = prv_phase_jd(q);
+  double t_b = prv_phase_jd(q + 0.25);
+  for (int i = 0; i < 3 && t_b <= jd; i++) {
+    q += 0.25;
+    t_a = t_b;
+    t_b = prv_phase_jd(q + 0.25);
+  }
+  for (int i = 0; i < 3 && jd < t_a; i++) {
+    q -= 0.25;
+    t_b = t_a;
+    t_a = prv_phase_jd(q);
   }
 
+  // Linear between the two, so the drawing matches each phase at its instant.
   MoonState state;
-  if (last_new > 0.0 && next_new > last_new) {
-    state.fraction = (jd - last_new) / (next_new - last_new);
-  } else {
-    // Fallback to the mean synodic month if bracketing failed.
-    state.fraction = fmod((jd - last_new) / SYNODIC_MONTH, 1.0);
-  }
+  state.fraction = (q - floor(q)) + 0.25 * (jd - t_a) / (t_b - t_a);
   if (state.fraction < 0.0) state.fraction += 1.0;
   if (state.fraction >= 1.0) state.fraction -= 1.0;
 

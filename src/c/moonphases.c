@@ -846,7 +846,8 @@ static void prv_init(void) {
   prv_refresh_data();
 
   app_message_register_inbox_received(prv_inbox_received);
-  app_message_open(64, 64);
+  // Only the phone talks: the watch has nothing to send, and needs no outbox.
+  app_message_open(64, 0);
   tick_timer_service_subscribe(HOUR_UNIT, prv_tick);
 
   // Third-party apps get no touch input until they ask for it: a vertical swipe

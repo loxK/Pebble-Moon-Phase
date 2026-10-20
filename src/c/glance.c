@@ -8,6 +8,9 @@
 #include "moon_phase.h"
 #include <string.h>
 
+// Aplite has no launcher glance.
+#if !defined(PBL_PLATFORM_APLITE)
+
 // The eight slices the launcher keeps are cut at icon and phase changes, which
 // come at least every few days, so they never reach beyond a lunation.
 #define PHASE_LOOKAHEAD 5
@@ -165,3 +168,9 @@ void glance_publish(Lang lang, bool southern) {
   GlanceContext ctx = { .lang = lang, .southern = southern };
   app_glance_reload(prv_reload, &ctx);
 }
+
+#else
+
+void glance_publish(Lang lang, bool southern) {}
+
+#endif

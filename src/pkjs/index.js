@@ -8,8 +8,8 @@
  *
  *  - Sends the hemisphere (from the phone GPS) to the watch, but only fetches a
  *    new GPS fix when the cached value is missing or stale, to save battery.
- *  - Pushes timeline pins for the upcoming phases, perigees and apogees, but
- *    only when the set of dates actually changed since the last push.
+ *  - Pushes timeline pins for the upcoming phases, perigees and apogees, each
+ *    only when it changed since it was last pushed.
  */
 
 var Moon = require('./moon_phase');
@@ -167,6 +167,9 @@ function updateHemisphere() {
       lsSet('hemi', southern ? '1' : '0');
       lsSet('hemiTime', '' + Date.now());
       sendHemisphere(southern);
+      // The pins went out with the hemisphere known before this fix; the
+      // quarters swap their icons if it changed.
+      pushMoonPins();
     },
     function (err) {
       log('geolocation error: ' + err.message);
@@ -193,10 +196,21 @@ function moonPin(id, time, title, body, iconName) {
   };
 }
 
+// Short fingerprint of a string (djb2), to tell whether a pin changed.
+function fingerprint(str) {
+  var h = 5381;
+  for (var i = 0; i < str.length; i++) {
+    h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(36);
+}
+
 /**
  * Push timeline pins for the upcoming phases, and for the perigees and apogees
- * falling among them, but skip the network entirely when nothing changed since
- * the last successful push.
+ * falling among them. Each pin is pushed only when it differs from what was
+ * last pushed under its id: its fingerprint covers everything it shows, so a
+ * new language, hemisphere, time zone or wording pushes again exactly the pins
+ * it changes, and a failed one is retried on its own next time.
  */
 function pushMoonPins() {
   var now = Math.floor(Date.now() / 1000);
@@ -204,19 +218,6 @@ function pushMoonPins() {
   var apsides = Moon.apsides(now, events[events.length - 1].time);
   var lang = pickLang();
   var southern = lsGet('hemi') === '1';
-  // Include language and hemisphere so changing either re-pushes matching pins.
-  var sig = lang + (southern ? 'S' : 'N') + '|' +
-            events.map(function (e) {
-              return e.type + (e.supermoon ? 'S' : '') + '@' + e.time;
-            }).join(',') + '|' +
-            apsides.map(function (a) {
-              return (a.perigee ? 'P' : 'A') + '@' + a.time;
-            }).join(',');
-
-  if (lsGet('pinSig') === sig) {
-    log('pins unchanged; skipping push');
-    return;
-  }
 
   var pins = events.map(function (ev) {
     // Southern hemisphere mirrors the quarters: swap first/last quarter icons
@@ -235,14 +236,24 @@ function pushMoonPins() {
                    APSIS_ICON_NAME[kind]);
   }));
 
-  var pending = pins.length;
-  var ok = 0;
+  // Fingerprints of the pins as last pushed, by id. Pins that left the window
+  // drop out of it.
+  var pushed = {};
+  try { pushed = JSON.parse(lsGet('pinsPushed') || '{}'); } catch (e) { /* start over */ }
+  var record = {};
   pins.forEach(function (pin) {
+    if (pushed[pin.id]) record[pin.id] = pushed[pin.id];
+  });
+  lsSet('pinsPushed', JSON.stringify(record));
+
+  pins.forEach(function (pin) {
+    var print = fingerprint(JSON.stringify(pin));
+    if (record[pin.id] === print) return;
     timeline.insertUserPin(pin, function (status) {
       log('pin ' + pin.id + ' -> ' + status);
-      if (status >= 200 && status < 300) ok++;
-      if (--pending === 0 && ok === pins.length) {
-        lsSet('pinSig', sig);  // only cache when all succeeded
+      if (status >= 200 && status < 300) {
+        record[pin.id] = print;
+        lsSet('pinsPushed', JSON.stringify(record));
       }
     });
   });

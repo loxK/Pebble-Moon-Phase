@@ -24,7 +24,7 @@ var DEBUG = false;
 function log(msg) { if (DEBUG) { console.log(msg); } }
 
 // Localized phase titles (sent already translated so the timeline service does
-// not substitute its own wording). Language follows the phone locale.
+// not substitute its own wording), in the language of the watch (pickLang).
 var PHASE_TITLES = {
   en: ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter'],
   fr: ['Nouvelle lune', 'Premier quartier', 'Pleine lune', 'Dernier quartier'],
@@ -70,14 +70,47 @@ function lsSet(k, v) {
   try { localStorage.setItem(k, v); } catch (e) { /* no-op */ }
 }
 
-function pickLang() {
-  var l = (navigator.language || 'en').toLowerCase();
-  if (l.indexOf('zh') === 0 || l.indexOf('tw') >= 0 || l.indexOf('hk') >= 0 ||
-      l.indexOf('cn') >= 0) {
-    return (l.indexOf('tw') >= 0 || l.indexOf('hk') >= 0) ? 'zh-TW' : 'zh-CN';
+/**
+ * Language of a watch locale ("fr_FR", "zh_TW"), by the rules of i18n_lang()
+ * on the watch: the Chinese language packs also come as en_CN and en_TW.
+ */
+function langFromWatch(locale) {
+  if (locale.indexOf('zh') === 0) {
+    return /TW|HK/.test(locale) ? 'zh-TW' : 'zh-CN';
   }
-  var p = l.slice(0, 2);
+  if (/TW|HK/.test(locale)) return 'zh-TW';
+  if (/CN/.test(locale)) return 'zh-CN';
+  var p = locale.slice(0, 2).toLowerCase();
   return PHASE_TITLES[p] ? p : 'en';
+}
+
+/**
+ * Language of a phone locale ("fr-FR", "zh-Hant-HK", "en_HK"), from its
+ * language subtag: a phone's region says where it is, not what its owner
+ * reads.
+ */
+function langFromPhone(tag) {
+  var parts = tag.toLowerCase().split(/[-_]/);
+  if (parts[0] === 'zh') {
+    var traditional = parts.some(function (p) {
+      return p === 'hant' || p === 'tw' || p === 'hk' || p === 'mo';
+    });
+    return traditional ? 'zh-TW' : 'zh-CN';
+  }
+  return PHASE_TITLES[parts[0]] ? parts[0] : 'en';
+}
+
+/**
+ * Language of the pins: the watch's, so they read like the app, falling back
+ * to the phone's when the watch does not say.
+ */
+function pickLang() {
+  var info = null;
+  try {
+    info = Pebble.getActiveWatchInfo ? Pebble.getActiveWatchInfo() : null;
+  } catch (e) { /* not connected */ }
+  if (info && info.language) return langFromWatch(info.language);
+  return langFromPhone(navigator.language || 'en');
 }
 
 // Localized weekday / month names (long form), keyed like PHASE_TITLES and

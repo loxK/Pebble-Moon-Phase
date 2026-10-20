@@ -2,7 +2,7 @@
 
 Notable changes to Moon Phase. Versions follow [semver](https://semver.org).
 
-## Unreleased
+## 1.2.0 (2026-10-20)
 
 ### Added
 

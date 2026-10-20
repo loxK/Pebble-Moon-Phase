@@ -10,10 +10,6 @@
 #include "i18n.h"
 #include "glance.h"
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
 // ----------------------------------------------------------------------------
 // Configuration
 // ----------------------------------------------------------------------------
@@ -183,7 +179,7 @@ static int prv_isqrt(int n) {
   return x;
 }
 
-// Round a double to the nearest int without pulling in libm round().
+// Round a double to the nearest int.
 #define MP_IRND(v) ((int)((v) < 0 ? (v) - 0.5 : (v) + 0.5))
 
 /**

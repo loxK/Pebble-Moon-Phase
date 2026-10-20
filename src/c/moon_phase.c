@@ -230,9 +230,6 @@ MoonState moon_phase_state(time_t now) {
   state.fraction = (q - floor(q)) + 0.25 * (jd - t_a) / (t_b - t_a);
   if (state.fraction < 0.0) state.fraction += 1.0;
   if (state.fraction >= 1.0) state.fraction -= 1.0;
-
-  state.illumination = (1.0 - mp_cos_deg(360.0 * state.fraction)) / 2.0;
-  state.waxing = state.fraction < 0.5;
   return state;
 }
 

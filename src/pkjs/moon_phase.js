@@ -47,14 +47,17 @@ function phaseJDE(k) {
 
   var corr;
   if (quarter === 0 || quarter === 2) {
+    // New moon and full moon share their corrections from the eighth term on;
+    // the first seven differ slightly.
+    var full = quarter === 2;
     corr =
-        -0.40720 * sind(Mp)
-      + 0.17241 * E * sind(M)
-      + 0.01608 * sind(2 * Mp)
-      + 0.01039 * sind(2 * F)
-      + 0.00739 * E * sind(Mp - M)
-      - 0.00514 * E * sind(Mp + M)
-      + 0.00208 * E2 * sind(2 * M)
+        (full ? -0.40614 : -0.40720) * sind(Mp)
+      + (full ? 0.17302 : 0.17241) * E * sind(M)
+      + (full ? 0.01614 : 0.01608) * sind(2 * Mp)
+      + (full ? 0.01043 : 0.01039) * sind(2 * F)
+      + (full ? 0.00734 : 0.00739) * E * sind(Mp - M)
+      - (full ? 0.00515 : 0.00514) * E * sind(Mp + M)
+      + (full ? 0.00209 : 0.00208) * E2 * sind(2 * M)
       - 0.00111 * sind(Mp - 2 * F)
       - 0.00057 * sind(Mp + 2 * F)
       + 0.00056 * E * sind(2 * Mp + M)

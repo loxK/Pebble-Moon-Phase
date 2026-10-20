@@ -102,15 +102,17 @@ static double prv_phase_jde(double k) {
 
   double corr = 0.0;
   if (quarter == 0 || quarter == 2) {
-    // New moon and full moon share the same set of corrections.
+    // New moon and full moon share their corrections from the eighth term on;
+    // the first seven differ slightly.
+    const bool full = quarter == 2;
     corr =
-        -0.40720 * prv_sind(Mp)
-      + 0.17241 * E * prv_sind(M)
-      + 0.01608 * prv_sind(2 * Mp)
-      + 0.01039 * prv_sind(2 * F)
-      + 0.00739 * E * prv_sind(Mp - M)
-      - 0.00514 * E * prv_sind(Mp + M)
-      + 0.00208 * E2 * prv_sind(2 * M)
+        (full ? -0.40614 : -0.40720) * prv_sind(Mp)
+      + (full ? 0.17302 : 0.17241) * E * prv_sind(M)
+      + (full ? 0.01614 : 0.01608) * prv_sind(2 * Mp)
+      + (full ? 0.01043 : 0.01039) * prv_sind(2 * F)
+      + (full ? 0.00734 : 0.00739) * E * prv_sind(Mp - M)
+      - (full ? 0.00515 : 0.00514) * E * prv_sind(Mp + M)
+      + (full ? 0.00209 : 0.00208) * E2 * prv_sind(2 * M)
       - 0.00111 * prv_sind(Mp - 2 * F)
       - 0.00057 * prv_sind(Mp + 2 * F)
       + 0.00056 * E * prv_sind(2 * Mp + M)

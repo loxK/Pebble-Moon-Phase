@@ -19,6 +19,10 @@
 
 #define MP_SECONDS_PER_DAY 86400.0
 
+// Dynamical time runs ahead of UTC by delta-T, about 69 s through the 2020s and
+// drifting by about a second a decade. The series below are in dynamical time.
+#define DELTA_T_DAYS (69.0 / MP_SECONDS_PER_DAY)
+
 #define DEG_TO_RAD (M_PI / 180.0)
 
 /** Convert a UTC epoch to a Julian Day. */
@@ -65,15 +69,29 @@ double mp_sin_deg(double deg) {
 static double prv_sind(double deg) { return mp_sin_deg(deg); }
 static double prv_cosd(double deg) { return mp_cos_deg(deg); }
 
+// Planetary arguments of Meeus ch. 49 (A1..A14): angle at k = 0 and per
+// lunation, in degrees, then the amplitude of the correction, in days. Floats
+// keep the table small; their rounding moves a phase by a second at most.
+typedef struct {
+  float a0, a1, amplitude;
+} PlanetaryTerm;
+
+static const PlanetaryTerm PLANETARY_TERMS[] = {
+  {299.77f, 0.107408f, 0.000325f}, {251.88f, 0.016321f, 0.000165f},
+  {251.83f, 26.651886f, 0.000164f}, {349.42f, 36.412478f, 0.000126f},
+  {84.66f, 18.206239f, 0.000110f}, {141.74f, 53.303771f, 0.000062f},
+  {207.14f, 2.453732f, 0.000060f}, {154.84f, 7.306860f, 0.000056f},
+  {34.52f, 27.261239f, 0.000047f}, {207.19f, 0.121824f, 0.000042f},
+  {291.34f, 1.844379f, 0.000040f}, {161.72f, 24.198154f, 0.000037f},
+  {239.56f, 25.513099f, 0.000035f}, {331.55f, 3.592518f, 0.000023f},
+};
+
 /**
- * Julian Ephemeris Day of the phase identified by the continuous lunation
- * value `k`. Integer k -> new moon; +0.25 first quarter; +0.5 full moon;
- * +0.75 last quarter (Meeus, Astronomical Algorithms, ch. 49).
- *
- * Dynamical-time / UTC difference (delta-T, ~70 s) is ignored on purpose: it is
- * negligible for a "in X days" display.
+ * Julian Day, in UTC, of the phase identified by the continuous lunation value
+ * `k`. Integer k -> new moon; +0.25 first quarter; +0.5 full moon; +0.75 last
+ * quarter (Meeus, Astronomical Algorithms, ch. 49).
  */
-static double prv_phase_jde(double k) {
+static double prv_phase_jd(double k) {
   double T = k / 1236.85;
   double T2 = T * T;
   double T3 = T2 * T;
@@ -170,7 +188,14 @@ static double prv_phase_jde(double k) {
     corr += (quarter == 1) ? W : -W;
   }
 
-  return jde + corr;
+  // The planets add their own small corrections, the same for every phase.
+  for (unsigned i = 0; i < sizeof(PLANETARY_TERMS) / sizeof(PLANETARY_TERMS[0]); i++) {
+    const PlanetaryTerm *term = &PLANETARY_TERMS[i];
+    double angle = term->a0 + (double)term->a1 * k - (i == 0 ? 0.009173 * T2 : 0.0);
+    corr += term->amplitude * prv_sind(angle);
+  }
+
+  return jde + corr - DELTA_T_DAYS;
 }
 
 /** Approximate continuous lunation index `k` for a given epoch. */
@@ -188,7 +213,7 @@ MoonState moon_phase_state(time_t now) {
   double last_new = 0.0;
   double next_new = 0.0;
   for (double k = k0 - 2.0; k <= k0 + 2.0; k += 1.0) {
-    double t = prv_phase_jde(k);
+    double t = prv_phase_jd(k);
     if (t <= jd && (last_new == 0.0 || t > last_new)) {
       last_new = t;
     }
@@ -242,8 +267,8 @@ static const DistanceTerm DISTANCE_TERMS[] = {
 
 /** Earth-Moon distance in km at the given UTC time, unrounded. */
 static double prv_distance(time_t t) {
-  // Julian centuries since J2000. Delta-T (~70 s) is ignored, as for the phases.
-  double T = (prv_jd_from_epoch(t) - 2451545.0) / 36525.0;
+  // Julian centuries since J2000, in dynamical time.
+  double T = (prv_jd_from_epoch(t) + DELTA_T_DAYS - 2451545.0) / 36525.0;
   double T2 = T * T;
   double T3 = T2 * T;
   double T4 = T3 * T;
@@ -292,7 +317,7 @@ void moon_phase_upcoming(time_t now, MoonPhaseEvent *events, int count) {
   for (double k = k_base; found < count && k < k_base + 40.0; k += 1.0) {
     for (int q = 0; q < 4 && found < count; q++) {
       double kk = k + q * 0.25;
-      double t = prv_phase_jde(kk);
+      double t = prv_phase_jd(kk);
       if (t > jd) {
         events[found].type = (MoonPhaseType)q;
         events[found].time = prv_epoch_from_jd(t);

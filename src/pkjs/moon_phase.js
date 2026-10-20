@@ -23,11 +23,27 @@ function cosd(d) { return Math.cos(d * DEG); }
 function jdFromEpoch(epoch) { return epoch / SECONDS_PER_DAY + JD_UNIX_EPOCH; }
 function epochFromJd(jd) { return Math.round((jd - JD_UNIX_EPOCH) * SECONDS_PER_DAY); }
 
+// Dynamical time runs ahead of UTC by delta-T, about 69 s through the 2020s and
+// drifting by about a second a decade. The series below are in dynamical time.
+var DELTA_T_DAYS = 69.0 / SECONDS_PER_DAY;
+
+// Planetary arguments of Meeus ch. 49 (A1..A14): [angle at k = 0, per lunation
+// (degrees), amplitude of the correction (days)].
+var PLANETARY_TERMS = [
+  [299.77, 0.107408, 0.000325], [251.88, 0.016321, 0.000165],
+  [251.83, 26.651886, 0.000164], [349.42, 36.412478, 0.000126],
+  [84.66, 18.206239, 0.000110], [141.74, 53.303771, 0.000062],
+  [207.14, 2.453732, 0.000060], [154.84, 7.306860, 0.000056],
+  [34.52, 27.261239, 0.000047], [207.19, 0.121824, 0.000042],
+  [291.34, 1.844379, 0.000040], [161.72, 24.198154, 0.000037],
+  [239.56, 25.513099, 0.000035], [331.55, 3.592518, 0.000023],
+];
+
 /**
- * Julian Ephemeris Day of the phase identified by the continuous lunation
- * value `k` (integer => new moon, +0.25 first quarter, +0.5 full, +0.75 last).
+ * Julian Day, in UTC, of the phase identified by the continuous lunation value
+ * `k` (integer => new moon, +0.25 first quarter, +0.5 full, +0.75 last).
  */
-function phaseJDE(k) {
+function phaseJD(k) {
   var T = k / 1236.85;
   var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
 
@@ -113,7 +129,13 @@ function phaseJDE(k) {
     corr += (quarter === 1) ? W : -W;
   }
 
-  return jde + corr;
+  // The planets add their own small corrections, the same for every phase.
+  for (var i = 0; i < PLANETARY_TERMS.length; i++) {
+    var a = PLANETARY_TERMS[i];
+    corr += a[2] * sind(a[0] + a[1] * k - (i === 0 ? 0.009173 * T2 : 0.0));
+  }
+
+  return jde + corr - DELTA_T_DAYS;
 }
 
 function kEstimate(epoch) {
@@ -152,7 +174,7 @@ var DISTANCE_TERMS = [
  * ch. 47). Unrounded, so the apsis search below sees a smooth curve.
  */
 function distanceKm(epoch) {
-  var T = (jdFromEpoch(epoch) - 2451545.0) / 36525.0;
+  var T = (jdFromEpoch(epoch) + DELTA_T_DAYS - 2451545.0) / 36525.0;  // dynamical time
   var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
   var D = 297.8501921 + 445267.1114034 * T - 0.0018819 * T2 + T3 / 545868.0 - T4 / 113065000.0;
   var M = 357.5291092 + 35999.0502909 * T - 0.0001536 * T2 + T3 / 24490000.0;
@@ -226,7 +248,7 @@ function upcoming(nowEpoch, count) {
   for (var k = kBase; events.length < count && k < kBase + 40.0; k += 1.0) {
     for (var q = 0; q < 4 && events.length < count; q++) {
       var kk = k + q * 0.25;
-      var t = phaseJDE(kk);
+      var t = phaseJD(kk);
       if (t > jd) {
         var time = epochFromJd(t);
         // Rounded to the km like the watch, so both name the same supermoons.

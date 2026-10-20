@@ -171,26 +171,36 @@ function distanceKm(epoch) {
  * Perigees and apogees between `fromEpoch` and `toEpoch`, in chronological
  * order: { perigee: bool, time: epochSeconds, distance: km }.
  *
- * The distance is sampled every six hours; each turn of the curve is then
- * narrowed down by golden-section search to well under a minute.
+ * The distance is sampled every six hours, on a grid fixed to the epoch so that
+ * any call finds the same turns; each one is then narrowed down by golden-
+ * section search and rounded to the minute, so its time is stable too. The
+ * grid starts a step early: a turn is only seen from the sample after it.
  */
 function apsides(fromEpoch, toEpoch) {
   var STEP = 6 * 3600;
+  var R = 0.6180339887;  // inverse golden ratio
   var out = [];
-  var t0 = fromEpoch, d0 = distanceKm(t0);
+  var t0 = Math.floor(fromEpoch / STEP) * STEP - STEP, d0 = distanceKm(t0);
   var t1 = t0 + STEP, d1 = distanceKm(t1);
   for (var t2 = t1 + STEP; t2 <= toEpoch + STEP; t2 += STEP) {
     var d2 = distanceKm(t2);
     var perigee = d1 < d0 && d1 <= d2;
     if (perigee || (d1 > d0 && d1 >= d2)) {
+      // Search for the minimum of sign * distance; each round keeps one probe.
       var sign = perigee ? 1 : -1;
       var a = t0, b = t2;
+      var c1 = b - (b - a) * R, f1 = sign * distanceKm(c1);
+      var c2 = a + (b - a) * R, f2 = sign * distanceKm(c2);
       while (b - a > 30) {
-        var c1 = b - (b - a) / 1.618034;
-        var c2 = a + (b - a) / 1.618034;
-        if (sign * distanceKm(c1) < sign * distanceKm(c2)) b = c2; else a = c1;
+        if (f1 < f2) {
+          b = c2; c2 = c1; f2 = f1;
+          c1 = b - (b - a) * R; f1 = sign * distanceKm(c1);
+        } else {
+          a = c1; c1 = c2; f1 = f2;
+          c2 = a + (b - a) * R; f2 = sign * distanceKm(c2);
+        }
       }
-      var time = Math.round((a + b) / 2);
+      var time = Math.round((a + b) / 120) * 60;
       if (time > fromEpoch && time <= toEpoch) {
         out.push({ perigee: perigee, time: time, distance: distanceKm(time) });
       }
@@ -216,7 +226,8 @@ function upcoming(nowEpoch, count) {
       var t = phaseJDE(kk);
       if (t > jd) {
         var time = epochFromJd(t);
-        var distance = distanceKm(time);
+        // Rounded to the km like the watch, so both name the same supermoons.
+        var distance = Math.round(distanceKm(time));
         events.push({
           type: q,
           time: time,

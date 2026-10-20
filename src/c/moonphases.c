@@ -43,7 +43,6 @@ static bool s_visible;
 static MoonState s_state;
 static int32_t s_distance_now;
 static bool s_approaching_now;
-static bool s_approaching[EVENT_COUNT];  // at each event of s_events
 static MoonPhaseEvent s_events[EVENT_COUNT];
 
 // 0 = Northern hemisphere (default), 1 = Southern hemisphere.
@@ -122,7 +121,6 @@ static void prv_refresh_data(void) {
   if (start > 2) start = 2;  // defensive: keep start + EVENT_COUNT within buf
   for (int i = 0; i < EVENT_COUNT; i++) {
     s_events[i] = buf[start + i];
-    s_approaching[i] = moon_is_approaching(s_events[i].time);
   }
 }
 
@@ -164,8 +162,12 @@ static void prv_format_time(time_t event, char *buf, size_t len) {
   if (clock_is_24h_style()) {
     snprintf(buf, len, "%02d:%02d", t.tm_hour, t.tm_min);
   } else {
+    // strftime's %l pads the hour with a space, which would shift the centred
+    // line; only the AM/PM marker comes from it, in the watch's language.
+    char am_pm[8];
+    strftime(am_pm, sizeof(am_pm), "%p", &t);
     int h = t.tm_hour % 12;
-    snprintf(buf, len, "%d:%02d %s", h ? h : 12, t.tm_min, t.tm_hour < 12 ? "AM" : "PM");
+    snprintf(buf, len, "%d:%02d %s", h ? h : 12, t.tm_min, am_pm);
   }
 }
 
@@ -256,7 +258,7 @@ static int32_t prv_card_distance(int idx) {
 
 /** Whether the Moon is coming closer at the time card `idx` stands for. */
 static bool prv_card_approaching(int idx) {
-  return idx == 0 ? s_approaching_now : s_approaching[idx];
+  return idx == 0 ? s_approaching_now : s_events[idx].approaching;
 }
 
 /** How close the Moon is, from 0 at the farthest apogee to 1 at the closest perigee. */
@@ -805,7 +807,19 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
 // Recompute on the hour so "Today"/"Tomorrow" and the drawn Moon stay correct
 // if the app is left open across local midnight (or a phase instant).
 static void prv_tick(struct tm *tick_time, TimeUnits units_changed) {
+  // The refresh drops the events whose day is over and shifts the rest, so the
+  // card on screen is found again by its event; back to the first card when
+  // that event is gone.
+  time_t shown = s_events[s_card].time;
+  animation_unschedule(s_slide_anim);
   prv_refresh_data();
+  s_card = 0;
+  for (int i = 0; i < EVENT_COUNT; i++) {
+    if (s_events[i].time == shown) {
+      s_card = i;
+      break;
+    }
+  }
   if (s_main_layer) layer_mark_dirty(s_main_layer);
 }
 
@@ -824,6 +838,8 @@ static bool prv_touch_nav_is_safe(void) {
 static void prv_init(void) {
   s_rand_state = (uint32_t)prv_now() | 1u;
   s_lang = i18n_lang();
+  // strftime stays in English until the app takes the watch's locale.
+  setlocale(LC_TIME, "");
   s_southern = persist_exists(PERSIST_KEY_HEMISPHERE)
              ? persist_read_int(PERSIST_KEY_HEMISPHERE) : 0;
 

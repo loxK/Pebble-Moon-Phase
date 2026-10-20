@@ -55,7 +55,7 @@ var APSIS_TITLES = {
 };
 
 // Thousands separator for the distances.
-var THOUSANDS = { en: ',', fr: ' ', de: '.', es: '.', it: '.', pt: '.', 'zh-CN': ',', 'zh-TW': ',' };
+var THOUSANDS = { en: ',', fr: '\u00a0', de: '.', es: '.', it: '.', pt: '.', 'zh-CN': ',', 'zh-TW': ',' };
 
 // publishedMedia names declared in package.json (referenced as app://images/NAME).
 var PHASE_ICON_NAME = ['MOON_NEW', 'MOON_FIRST', 'MOON_FULL', 'MOON_LAST'];

@@ -33,6 +33,7 @@ typedef struct {
   MoonPhaseType type;
   time_t time;           //!< UTC epoch of the event.
   int32_t distance_km;   //!< Earth-Moon distance at that instant, centre to centre.
+  bool approaching;      //!< Whether the Moon is coming closer at that instant.
 } MoonPhaseEvent;
 
 /**
@@ -91,7 +92,8 @@ bool moon_is_approaching(time_t t);
 
 /**
  * Fill an array with the next `count` principal phase events occurring strictly
- * after `now`, in chronological order, each with the distance at its instant.
+ * after `now`, in chronological order, each with the distance at its instant
+ * and the way it is changing.
  *
  * @param now UTC epoch.
  * @param events Output array, must hold at least `count` elements.

@@ -238,7 +238,8 @@ static const DistanceTerm DISTANCE_TERMS[] = {
   {2, 0, -1, -2, 8752},
 };
 
-int32_t moon_distance_km(time_t t) {
+/** Earth-Moon distance in km at the given UTC time, unrounded. */
+static double prv_distance(time_t t) {
   // Julian centuries since J2000. Delta-T (~70 s) is ignored, as for the phases.
   double T = (prv_jd_from_epoch(t) - 2451545.0) / 36525.0;
   double T2 = T * T;
@@ -264,13 +265,20 @@ int32_t moon_distance_km(time_t t) {
     else if (term->m == 2 || term->m == -2) c *= E * E;
     sum += c * mp_cos_deg(term->d * D + term->m * M + term->mp * Mp + term->f * F);
   }
-  return (int32_t)(385000.56 + sum / 1000.0 + 0.5);
+  return 385000.56 + sum / 1000.0;
 }
 
+int32_t moon_distance_km(time_t t) {
+  return (int32_t)(prv_distance(t) + 0.5);
+}
+
+// Direction of travel, from the distance a minute later. Both are compared
+// unrounded: next to an apsis the Moon moves by metres in a minute, far below
+// the km rounding.
+#define APPROACH_STEP_S 60
+
 bool moon_is_approaching(time_t t) {
-  // Within half an hour of an apsis the change over the hour drops under the
-  // km rounding, and the Moon reads as receding.
-  return moon_distance_km(t + 3600) < moon_distance_km(t);
+  return prv_distance(t + APPROACH_STEP_S) < prv_distance(t);
 }
 
 void moon_phase_upcoming(time_t now, MoonPhaseEvent *events, int count) {
@@ -286,7 +294,10 @@ void moon_phase_upcoming(time_t now, MoonPhaseEvent *events, int count) {
       if (t > jd) {
         events[found].type = (MoonPhaseType)q;
         events[found].time = prv_epoch_from_jd(t);
-        events[found].distance_km = moon_distance_km(events[found].time);
+        double distance = prv_distance(events[found].time);
+        events[found].distance_km = (int32_t)(distance + 0.5);
+        events[found].approaching =
+            prv_distance(events[found].time + APPROACH_STEP_S) < distance;
         found++;
       }
     }

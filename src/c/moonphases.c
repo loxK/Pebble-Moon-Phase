@@ -55,8 +55,10 @@ static Lang s_lang;
 // others the shape of their own phase.
 static int s_card;
 
-// Phase name font, picked once the screen width and the language are known.
+// Phase name font, picked once the screen width and the language are known,
+// and the height of the tallest name in it, which every card reserves.
 static GFont s_name_font;
+static int s_name_block_h;
 
 // Slide from s_slide_from to s_card. s_slide_dir is +1 when the new card comes
 // up from below (DOWN), -1 when it comes down from above (UP).
@@ -487,19 +489,41 @@ static int prv_text_width(const char *text, GFont font) {
       GTextOverflowModeWordWrap, GTextAlignmentLeft).w;
 }
 
+/** Height of a phase name set in `font` across `cw`, wrapped as needed. */
+static int prv_name_height(const char *name, GFont font, int cw) {
+  return graphics_text_layout_get_content_size(
+      name, font, GRect(0, 0, cw, 72), GTextOverflowModeWordWrap, GTextAlignmentCenter).h;
+}
+
 /**
- * Font for the phase names: the larger one only when all the names of the
- * language fit on one line clear of the edges, so every card keeps the same
- * size and the Moon does not shrink from one card to the next.
+ * Name of phase `name` as a card shows it: the short form when the full one
+ * would wrap in the chosen font.
  */
-static GFont prv_pick_name_font(int cw) {
+static const char *prv_card_name(int name, int cw) {
+  const char *full = i18n_phase_name(s_lang, name);
+  return prv_text_width(full, s_name_font) > cw ? i18n_phase_name_short(s_lang, name) : full;
+}
+
+/**
+ * Pick the font for the phase names: the larger one only when all the names of
+ * the language fit on one line clear of the edges. Then reserve the height of
+ * the tallest name on every card, so a name that still wraps does not shrink
+ * the Moon on its card alone.
+ */
+static void prv_pick_name_font(int cw) {
   GFont large = fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+  s_name_font = large;
   for (int name = 0; name < I18N_NAME_COUNT; name++) {
     if (prv_text_width(i18n_phase_name(s_lang, name), large) > cw - 20) {
-      return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+      s_name_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+      break;
     }
   }
-  return large;
+  s_name_block_h = 0;
+  for (int name = 0; name < I18N_NAME_COUNT; name++) {
+    int h = prv_name_height(prv_card_name(name, cw), s_name_font, cw);
+    if (h > s_name_block_h) s_name_block_h = h;
+  }
 }
 
 /**
@@ -525,7 +549,7 @@ static void prv_draw_card(GContext *ctx, GRect b, int idx, int dy) {
   int small_h = large_screen ? 30 : 24;
 
   MoonPhaseEvent *ev = &s_events[idx];
-  const char *name_str = i18n_phase_name(s_lang, i18n_event_name(ev));
+  const char *name_str = prv_card_name(i18n_event_name(ev), cw);
   char big[24], small[24];
   if (idx == 0) {
     prv_format_relative(ev->time, big, sizeof(big));
@@ -541,16 +565,14 @@ static void prv_draw_card(GContext *ctx, GRect b, int idx, int dy) {
     prv_format_time(ev->time, small, sizeof(small));
   }
 
-  GSize name_sz = graphics_text_layout_get_content_size(
-      name_str, f_name, GRect(0, 0, cw, 72),
-      GTextOverflowModeWordWrap, GTextAlignmentCenter);
-  int name_h = name_sz.h;
+  int name_h = prv_name_height(name_str, f_name, cw);
 
-  // Text block sits at the bottom; the Moon fills the area above it.
+  // Text block sits at the bottom; the Moon fills the area above the room
+  // reserved for the tallest name, and this name sits at the foot of it.
   int y_small = b.size.h - small_h - 2;
   int y_big = y_small - big_h;
   int y_name = y_big - name_h;
-  int moon_bottom = y_name - 2;
+  int moon_bottom = y_big - s_name_block_h - 2;
 
   // Moon geometry, below the distance gauge.
   const int moon_top = 12;
@@ -769,7 +791,7 @@ static void prv_main_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
 
-  s_name_font = prv_pick_name_font(prv_content_width(bounds));
+  prv_pick_name_font(prv_content_width(bounds));
   s_main_layer = layer_create(bounds);
   layer_set_update_proc(s_main_layer, prv_main_update);
   layer_add_child(root, s_main_layer);

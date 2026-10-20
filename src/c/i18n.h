@@ -40,6 +40,9 @@ Lang i18n_lang(void);
 /** Localized name of a phase (0..3, see MoonPhaseType, or I18N_SUPERMOON). */
 const char *i18n_phase_name(Lang lang, int name);
 
+/** A shorter form of i18n_phase_name, where the language has one. */
+const char *i18n_phase_name_short(Lang lang, int name);
+
 /**
  * Shortened phase name for the launcher glance, whose subtitle is a single
  * clipped line. `waiting` picks the tighter form used while the line also

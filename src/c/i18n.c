@@ -18,6 +18,8 @@ typedef enum {
 
 typedef struct {
   const char *phases[I18N_NAME_COUNT];   // new, first quarter, full, last quarter, supermoon
+  // Shorter phase names for a line too narrow for the full ones; NULL if none.
+  const char *const *phases_short;
   const char *today;
   const char *tomorrow;
   const char *in_days;     // printf format with a single %d
@@ -27,6 +29,11 @@ typedef struct {
   const char *const *months_short;
   DateStyle date_style;
 } LangStrings;
+
+// "Cuarto menguante" runs past the edge of 144 px screens even at 24 px.
+static const char *const ES_PHASES_SHORT[I18N_NAME_COUNT] = {
+  "Luna nueva", "C. creciente", "Luna llena", "C. menguante", "Superluna",
+};
 
 // "juin" and "juillet" would both cut to "jui".
 static const char *const FR_MONTHS_SHORT[12] = {
@@ -59,6 +66,7 @@ static const LangStrings LANGS[LANG_COUNT] = {
   },
   [LANG_ES] = {
     .phases = {"Luna nueva", "Cuarto creciente", "Luna llena", "Cuarto menguante", "Superluna"},
+    .phases_short = ES_PHASES_SHORT,
     .today = "Hoy", .tomorrow = "Mañana", .in_days = "En %d días",
     .months = {"enero", "febrero", "marzo", "abril", "mayo", "junio",
                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"},
@@ -173,6 +181,11 @@ Lang i18n_lang(void) {
 
 const char *i18n_phase_name(Lang lang, int name) {
   return LANGS[lang].phases[name % I18N_NAME_COUNT];
+}
+
+const char *i18n_phase_name_short(Lang lang, int name) {
+  const char *const *names = LANGS[lang].phases_short;
+  return names ? names[name % I18N_NAME_COUNT] : LANGS[lang].phases[name % I18N_NAME_COUNT];
 }
 
 #if !defined(PBL_PLATFORM_APLITE)

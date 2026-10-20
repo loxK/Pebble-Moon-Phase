@@ -168,7 +168,7 @@ static void prv_format_time(time_t event, char *buf, size_t len) {
   } else {
     // strftime's %l pads the hour with a space, which would shift the centred
     // line; only the AM/PM marker comes from it, in the watch's language.
-    char am_pm[8];
+    char am_pm[8] = "";  // strftime leaves it as is when the marker does not fit
     strftime(am_pm, sizeof(am_pm), "%p", &t);
     int h = t.tm_hour % 12;
     snprintf(buf, len, "%d:%02d %s", h ? h : 12, t.tm_min, am_pm);
@@ -332,10 +332,11 @@ static void prv_draw_gauge(GContext *ctx, GRect b, double v, bool approaching) {
     graphics_fill_radial(ctx, ring, GOvalScaleModeFitCircle, thickness, at - half, at + half);
   }
 
-  // Past the near end of the arc, 7 px further along it.
+  // Past the near end of the arc, 7 px further along it and 6 px inside it,
+  // so the triangle's corners stay clear of the bezel.
   int mid = ring.size.w / 2 - thickness / 2;
   GPoint at_end = prv_polar(grect_center_point(&ring),
-                            start + span + TRIG_MAX_ANGLE * 7 * 1000 / (6283 * mid), mid);
+                            start + span + TRIG_MAX_ANGLE * 7 * 1000 / (6283 * mid), mid - 6);
   graphics_context_set_fill_color(ctx, COL_FG);
   prv_draw_direction(ctx, b, GPoint(at_end.x - 2, at_end.y), approaching);
 #else
@@ -701,6 +702,11 @@ static void prv_shoot_fire(void *data) {
   s_shoot_progress = 0.0;
 
   Animation *anim = animation_create();
+  if (!anim) {  // out of memory: skip this pass, try the next one
+    s_shoot_active = false;
+    prv_shoot_schedule();
+    return;
+  }
   animation_set_duration(anim, SHOOT_DURATION_MS);
   animation_set_curve(anim, AnimationCurveLinear);
   animation_set_implementation(anim, &s_shoot_impl);
@@ -747,6 +753,10 @@ static void prv_go(int dir) {
   s_card = to;
 
   s_slide_anim = animation_create();
+  if (!s_slide_anim) {  // out of memory: show the new card without the slide
+    if (s_main_layer) layer_mark_dirty(s_main_layer);
+    return;
+  }
   animation_set_duration(s_slide_anim, SLIDE_DURATION_MS);
   animation_set_curve(s_slide_anim, AnimationCurveEaseInOut);
   animation_set_implementation(s_slide_anim, &s_slide_impl);

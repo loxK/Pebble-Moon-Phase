@@ -9,7 +9,8 @@
  *  - Sends the hemisphere (from the phone GPS) to the watch, but only fetches a
  *    new GPS fix when the cached value is missing or stale, to save battery.
  *  - Pushes timeline pins for the upcoming phases, perigees and apogees, each
- *    only when it changed since it was last pushed.
+ *    only when it changed since it was last pushed, and deletes those an event
+ *    left behind when its computed time moved.
  */
 
 var Moon = require('./moon_phase');
@@ -68,6 +69,9 @@ function lsGet(k) {
 }
 function lsSet(k, v) {
   try { localStorage.setItem(k, v); } catch (e) { /* no-op */ }
+}
+function lsRemove(k) {
+  try { localStorage.removeItem(k); } catch (e) { /* no-op */ }
 }
 
 /**
@@ -212,6 +216,58 @@ function updateHemisphere() {
     { timeout: 15000, maximumAge: HEMI_TTL });
 }
 
+/** Time of the event a pin id stands for: the number after its last dash. */
+function pinTime(id) {
+  return parseInt(id.slice(id.lastIndexOf('-') + 1), 10);
+}
+
+/**
+ * Ids of the pins listed in the signature that earlier versions stored instead
+ * of fingerprints ("frN|2@1792988119,3@1793564989,...", then "|P@...,A@...").
+ * The signature goes once its ids are queued for deletion.
+ */
+function legacyPinIds() {
+  var sig = lsGet('pinSig');
+  if (!sig) return [];
+  var ids = [];
+  var re = /([0-3PA])S?@(\d+)/g;
+  var m;
+  while ((m = re.exec(sig)) !== null) {
+    var kind = m[1] === 'P' ? 'perigee-' : m[1] === 'A' ? 'apogee-' : '';
+    ids.push('moon-' + kind + m[2]);
+  }
+  return ids;
+}
+
+/**
+ * Delete the pins pushed earlier under ids that are gone from `pins` while
+ * their time is still ahead: an event whose computed time moved got a new id,
+ * and its old pin would sit next to the new one. Past ones expire on their
+ * own. The ids wait in storage until the timeline confirms each deletion.
+ */
+function deleteSupersededPins(pins, earlierIds, now) {
+  var current = {};
+  pins.forEach(function (pin) { current[pin.id] = true; });
+
+  var queue = [];
+  try { queue = JSON.parse(lsGet('pinsToDelete') || '[]'); } catch (e) { /* start over */ }
+  earlierIds.forEach(function (id) {
+    if (!current[id] && pinTime(id) > now && queue.indexOf(id) < 0) queue.push(id);
+  });
+  lsSet('pinsToDelete', JSON.stringify(queue));
+  lsRemove('pinSig');
+
+  queue.slice().forEach(function (id) {
+    timeline.deleteUserPin({ id: id }, function (status) {
+      log('delete ' + id + ' -> ' + status);
+      if ((status >= 200 && status < 300) || status === 404 || status === 410) {
+        queue.splice(queue.indexOf(id), 1);
+        lsSet('pinsToDelete', JSON.stringify(queue));
+      }
+    });
+  });
+}
+
 /** A timeline pin in the app's colours. */
 function moonPin(id, time, title, body, iconName) {
   var iconUri = 'app://images/' + iconName;
@@ -279,6 +335,8 @@ function pushMoonPins() {
     if (pushed[pin.id]) record[pin.id] = pushed[pin.id];
   });
   lsSet('pinsPushed', JSON.stringify(record));
+
+  deleteSupersededPins(pins, Object.keys(pushed).concat(legacyPinIds()), now);
 
   pins.forEach(function (pin) {
     var print = fingerprint(JSON.stringify(pin));

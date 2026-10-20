@@ -4,6 +4,9 @@
 # dependencies = ["pillow"]
 # ///
 #
+# Copyright (c) 2026 Laurent Dinclaux <laurent@knc.nc>
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
 # Draw the eight lunation icons, and the perigee and apogee ones, into
 # resources/images/timeline/, at the three sizes the timeline pins and the
 # launcher glance ask for.

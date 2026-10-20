@@ -45,7 +45,7 @@ jobs:
         # skip it on a cache hit (the toolchain + current symlink are cached too).
         run: |
           if [ -d "$HOME/.local/share/pebble-sdk/SDKs/$PEBBLE_SDK" ]; then
-            echo "SDK $PEBBLE_SDK restored from cache — skipping install."
+            echo "SDK $PEBBLE_SDK restored from cache, skipping install."
           else
             pebble sdk install "$PEBBLE_SDK"
           fi
@@ -71,13 +71,13 @@ jobs:
             ${{ env.PBW_NAME }}.sha256
           generate_release_notes: true       # auto changelog from commits
           body: |
-            ## 🌙 Moon Phase — ${{ github.ref_name }}
+            ## 🌙 Moon Phase ${{ github.ref_name }}
 
-            **Get it on the [Pebble App Store](https://apps.repebble.com/86a2d34ade9646dfb84d51af)** — or sideload the `.pbw` below.
+            **Get it on the [Pebble App Store](https://apps.repebble.com/86a2d34ade9646dfb84d51af)**, or sideload the `.pbw` below.
 
             **Latest download:** <https://github.com/${{ github.repository }}/releases/latest/download/moon-phase.pbw>
 
-            **SHA-256** — check your file matches this published build:
+            **SHA-256**: check your file matches this published build:
             ```
             ${{ steps.pkg.outputs.sha256 }}  moon-phase.pbw
             ```

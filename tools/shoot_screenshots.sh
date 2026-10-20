@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 #
+# Copyright (c) 2026 Laurent Dinclaux <laurent@knc.nc>
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
 # Capture the first card and the next one for every target platform into
 # assets/screenshots/<platform>_{main,card}.png.
 #

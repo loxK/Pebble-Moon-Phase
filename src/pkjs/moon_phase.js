@@ -199,7 +199,8 @@ function distanceKm(epoch) {
  * The distance is sampled every six hours, on a grid fixed to the epoch so that
  * any call finds the same turns; each one is then narrowed down by golden-
  * section search and rounded to the minute, so its time is stable too. The
- * grid starts a step early: a turn is only seen from the sample after it.
+ * grid starts a step early and ends a step late: a turn is only seen from the
+ * sample after the one closest to it.
  */
 function apsides(fromEpoch, toEpoch) {
   var STEP = 6 * 3600;
@@ -207,7 +208,7 @@ function apsides(fromEpoch, toEpoch) {
   var out = [];
   var t0 = Math.floor(fromEpoch / STEP) * STEP - STEP, d0 = distanceKm(t0);
   var t1 = t0 + STEP, d1 = distanceKm(t1);
-  for (var t2 = t1 + STEP; t2 <= toEpoch + STEP; t2 += STEP) {
+  for (var t2 = t1 + STEP; t2 <= toEpoch + 2 * STEP; t2 += STEP) {
     var d2 = distanceKm(t2);
     var perigee = d1 < d0 && d1 <= d2;
     if (perigee || (d1 > d0 && d1 >= d2)) {

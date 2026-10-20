@@ -22,8 +22,17 @@ typedef struct {
   const char *tomorrow;
   const char *in_days;     // printf format with a single %d
   const char *months[12];  // unused for DS_ZH
+  // Short month names where cutting to three letters would be wrong or
+  // ambiguous; NULL to cut.
+  const char *const *months_short;
   DateStyle date_style;
 } LangStrings;
+
+// "juin" and "juillet" would both cut to "jui".
+static const char *const FR_MONTHS_SHORT[12] = {
+  "janv.", "févr.", "mars", "avr.", "mai", "juin",
+  "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+};
 
 static const LangStrings LANGS[LANG_COUNT] = {
   [LANG_EN] = {
@@ -38,6 +47,7 @@ static const LangStrings LANGS[LANG_COUNT] = {
     .today = "Aujourd'hui", .tomorrow = "Demain", .in_days = "Dans %d jours",
     .months = {"janvier", "février", "mars", "avril", "mai", "juin",
                "juillet", "août", "septembre", "octobre", "novembre", "décembre"},
+    .months_short = FR_MONTHS_SHORT,
     .date_style = DS_D_MONTH,
   },
   [LANG_DE] = {
@@ -200,10 +210,13 @@ void i18n_date(Lang lang, int day, int month0, bool abbrev, char *buf, size_t le
   const LangStrings *s = &LANGS[lang];
   const char *month = s->months[month0];
 
-  // On round displays, clip the month to its first three UTF-8 code points so
-  // long names ("novembre", "September") don't run past the rounded edge.
+  // Clip the month to its first three UTF-8 code points so long names
+  // ("November", "septiembre") don't run past the edge, unless the language
+  // has its own short names.
   char abuf[12];
-  if (abbrev && month) {
+  if (abbrev && s->months_short) {
+    month = s->months_short[month0];
+  } else if (abbrev && month) {
     size_t bi = 0;
     int cps = 0;
     while (month[bi] && cps < 3 && bi + 4 < sizeof(abuf)) {

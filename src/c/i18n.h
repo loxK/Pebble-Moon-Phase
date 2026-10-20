@@ -66,7 +66,8 @@ void i18n_relative(Lang lang, int days, char *buf, size_t len);
 
 /**
  * Localized calendar date into `buf` (month0 is 0-based). When `abbrev` is true
- * the month name is shortened to three characters so it fits the narrower round
- * displays (e.g. "novembre" -> "nov").
+ * the month name is shortened so it fits a narrower line: to three characters
+ * ("November" -> "Nov"), or to the language's usual short form ("juillet" ->
+ * "juil.").
  */
 void i18n_date(Lang lang, int day, int month0, bool abbrev, char *buf, size_t len);

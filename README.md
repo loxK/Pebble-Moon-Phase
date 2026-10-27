@@ -7,7 +7,7 @@
 [![Pebble App Store](https://img.shields.io/badge/Pebble_App_Store-Moon_Phase-4b6cb7)](https://apps.repebble.com/86a2d34ade9646dfb84d51af)
 [![Latest release](https://img.shields.io/github/v/release/loxK/Pebble-Moon-Phase?sort=semver&color=2ea44f)](https://github.com/loxK/Pebble-Moon-Phase/releases/latest)
 [![Download .pbw](https://img.shields.io/badge/download-.pbw-2ea44f)](https://github.com/loxK/Pebble-Moon-Phase/releases/latest/download/moon-phase.pbw)
-[![Build](https://github.com/loxK/Pebble-Moon-Phase/actions/workflows/release.yml/badge.svg)](https://github.com/loxK/Pebble-Moon-Phase/actions/workflows/release.yml)
+[![Build](https://github.com/loxK/Pebble-Moon-Phase/actions/workflows/build.yml/badge.svg)](https://github.com/loxK/Pebble-Moon-Phase/actions/workflows/build.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 
 <img src="assets/screenshots/emery_main.png" width="200" alt="Moon Phase main screen">
@@ -74,7 +74,15 @@ Every [release](https://github.com/loxK/Pebble-Moon-Phase/releases/latest) ships
 sha256sum -c moon-phase.pbw.sha256        # -> moon-phase.pbw: OK
 ```
 
-The checksum is also printed in each release's notes.
+The checksum is also printed in each release's notes. Releases after 1.2.0 also carry a build provenance attestation signed by GitHub, which ties the file to the workflow run and the commit that produced it:
+
+```sh
+gh attestation verify moon-phase.pbw --repo loxK/Pebble-Moon-Phase
+```
+
+## Releases
+
+Every push to `main` and every pull request builds the watchapp. Pushing a tag `vX.Y.Z` builds it again, attests its provenance and publishes a GitHub release with the `.pbw`, its checksum and the matching section of [`CHANGELOG.md`](CHANGELOG.md). The tag has to match the version in `package.json`, and the changelog needs a `## X.Y.Z` section. That `.pbw` is the one published on the Pebble App Store.
 
 ## License
 

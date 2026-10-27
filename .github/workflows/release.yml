@@ -1,86 +1,77 @@
 name: Release
 
-# Build the watchapp and publish a GitHub Release with the compiled .pbw and
-# its SHA-256, plus an auto-generated changelog. Triggered by pushing a version
-# tag (e.g. v1.0.0); also runnable by hand from the Actions tab.
-#
-# Stable "latest" download URL (the asset name never changes):
-#   https://github.com/loxK/Pebble-Moon-Phase/releases/latest/download/moon-phase.pbw
-
 on:
   push:
-    tags: ['v*']
-  workflow_dispatch:
+    tags: ["v*"]
 
 permissions:
-  contents: write
-
-env:
-  PEBBLE_SDK: "4.33.1"
-  PBW_NAME: moon-phase.pbw
+  contents: read
 
 jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
   release:
+    needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0          # full history so the changelog is complete
+          persist-credentials: false
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install the Pebble tool
-        run: pip install --upgrade pebble-tool
-
-      - name: Cache the Pebble SDK
-        uses: actions/cache@v6
-        with:
-          path: ~/.local/share/pebble-sdk
-          key: pebble-sdk-${{ env.PEBBLE_SDK }}
-
-      - name: Install the Pebble SDK ${{ env.PEBBLE_SDK }} (+ ARM toolchain)
-        # `pebble sdk install` exits non-zero if the SDK is already present, so
-        # skip it on a cache hit (the toolchain + current symlink are cached too).
+      - name: Check the tag against package.json
         run: |
-          if [ -d "$HOME/.local/share/pebble-sdk/SDKs/$PEBBLE_SDK" ]; then
-            echo "SDK $PEBBLE_SDK restored from cache, skipping install."
-          else
-            pebble sdk install "$PEBBLE_SDK"
+          version="$(jq -r .version package.json)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME, but package.json says $version"
+            exit 1
           fi
 
-      - name: Build
-        run: pebble build
-
-      - name: Package .pbw + checksum
-        id: pkg
-        run: |
-          pbw="$(ls build/*.pbw | head -1)"
-          cp "$pbw" "$PBW_NAME"
-          sha256sum "$PBW_NAME" > "$PBW_NAME.sha256"
-          echo "sha256=$(cut -d' ' -f1 "$PBW_NAME.sha256")" >> "$GITHUB_OUTPUT"
-          cat "$PBW_NAME.sha256"
-
-      - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+      - uses: actions/download-artifact@v8
         with:
-          files: |
-            ${{ env.PBW_NAME }}
-            ${{ env.PBW_NAME }}.sha256
-          generate_release_notes: true       # auto changelog from commits
-          body: |
-            ## 🌙 Moon Phase ${{ github.ref_name }}
+          name: watchapp
 
-            **Get it on the [Pebble App Store](https://apps.repebble.com/86a2d34ade9646dfb84d51af)**, or sideload the `.pbw` below.
+      - name: Checksum
+        run: |
+          # A fixed name keeps releases/latest/download/moon-phase.pbw pointing at the newest.
+          mv Pebble-Moon-Phase.pbw moon-phase.pbw
+          sha256sum moon-phase.pbw > moon-phase.pbw.sha256
+          cat moon-phase.pbw.sha256
 
-            **Latest download:** <https://github.com/${{ github.repository }}/releases/latest/download/moon-phase.pbw>
+      - name: Release notes from the changelog
+        run: |
+          awk -v version="${GITHUB_REF_NAME#v}" '
+            index($0, "## " version) == 1 { found = 1; next }
+            /^## / { found = 0 }
+            found
+          ' CHANGELOG.md > changes.md
+          if [ ! -s changes.md ]; then
+            echo "::error::No section for ${GITHUB_REF_NAME#v} in CHANGELOG.md"
+            exit 1
+          fi
+          {
+            echo "**Get it on the [Pebble App Store](https://apps.repebble.com/86a2d34ade9646dfb84d51af)**, or sideload the \`.pbw\` below."
+            echo
+            echo "**Latest download:** <https://github.com/$GITHUB_REPOSITORY/releases/latest/download/moon-phase.pbw>"
+            cat changes.md
+            echo "**SHA-256**"
+            echo '```'
+            cat moon-phase.pbw.sha256
+            echo '```'
+          } > notes.md
 
-            **SHA-256**: check your file matches this published build:
-            ```
-            ${{ steps.pkg.outputs.sha256 }}  moon-phase.pbw
-            ```
-            ```sh
-            sha256sum -c moon-phase.pbw.sha256
-            ```
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: moon-phase.pbw
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" moon-phase.pbw moon-phase.pbw.sha256 \
+            --title "Moon Phase $GITHUB_REF_NAME" --notes-file notes.md

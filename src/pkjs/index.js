@@ -119,10 +119,9 @@ function pickLang() {
 
 // Localized weekday / month names (long form), keyed like PHASE_TITLES and
 // mirroring the C-side i18n so pin dates read exactly like the watch screen.
-// We format by hand instead of using Date.prototype.toLocaleDateString because
-// the emulator's JS engine (pypkjs / STPyV8) fatally OOMs inside V8's ICU
-// DateTimePatternGenerator on that call, which kills the JS runtime. Manual
-// formatting is engine-independent and produces the same output on hardware.
+// Dates are formatted by hand rather than with toLocaleDateString: not every
+// engine PebbleKit JS runs on ships Intl (the emulator's pypkjs has none and
+// ignores the locale), and these tables give the same output on all of them.
 var WEEKDAYS = {
   en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
   fr: ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'],

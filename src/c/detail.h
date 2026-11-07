@@ -13,10 +13,12 @@
 #if MOON_HAS_DETAILS
 /**
  * Push a deck of cards about the Moon at `now`: how far it is and which way it
- * goes, then the next apogee and perigee in the order they come, the next node
- * passage and the next lunar eclipse, each with how long until it.
+ * goes, the next apogee and perigee in the order they come, whether it passes
+ * higher or lower each day and until when, the next node passage and the next
+ * lunar eclipse, each with how long until it. `southern` turns higher and lower
+ * around, as seen from the southern hemisphere.
  */
-void detail_push(time_t now, Lang lang);
+void detail_push(time_t now, Lang lang, bool southern);
 
 /**
  * When an event shows: the greatest phase of its eclipse when the app names

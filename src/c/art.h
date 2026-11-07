@@ -90,4 +90,11 @@ void art_draw_apsis(GContext *ctx, GPoint center, int radius, bool perigee);
  * pointing up at the ascending node and down at the descending one.
  */
 void art_draw_node(GContext *ctx, GPoint center, int radius, bool ascending);
+
+/**
+ * Draw the Moon's path across the sky over the horizon, the Moon at its top.
+ * `level`, from 0 to 100, sets how high the path goes; `trend` adds a chevron
+ * beside the Moon, pointing up (1) or down (-1), or none (0).
+ */
+void art_draw_sky(GContext *ctx, GPoint center, int radius, int level, int trend);
 #endif

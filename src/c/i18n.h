@@ -108,6 +108,10 @@ typedef enum {
   I18N_NEXT_APOGEE,
   I18N_TOWARD_PERIGEE,  //!< the Moon approaching
   I18N_TOWARD_APOGEE,   //!< the Moon receding
+  I18N_ASCENDING,       //!< the Moon passing higher each day
+  I18N_DESCENDING,      //!< the Moon passing lower each day
+  I18N_HIGHEST,
+  I18N_LOWEST,
   I18N_WORD_COUNT,
 } I18nWord;
 

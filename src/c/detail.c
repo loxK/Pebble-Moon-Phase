@@ -15,14 +15,15 @@
 #define BAND_BG PBL_IF_COLOR_ELSE(GColorCobaltBlue, GColorWhite)
 #define BAND_FG PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack)
 
-// How the Moon moves, the next apogee and perigee in the order they come, the
-// next node, the next eclipse.
-#define MAX_CARDS 5
+// How far the Moon is and which way it goes, the next apogee and perigee in
+// the order they come, whether it passes higher or lower each day, the next
+// node, the next eclipse.
+#define MAX_CARDS 6
 #define MAX_LINES 4
 #define LINE_LEN 48
 
-// The next node passage comes within half a month and a bit, the next apogee
-// and perigee within a month and a bit.
+// The next node passage and the next declination turn come within half a
+// month and a bit, the next apogee and perigee within a month and a bit.
 #define SEARCH_S (16 * 86400)
 #define APSIS_SEARCH_S (32 * 86400)
 
@@ -31,6 +32,7 @@ typedef enum {
   CARD_ART_APSIS,
   CARD_ART_NODE,
   CARD_ART_ECLIPSE,
+  CARD_ART_SKY,
 } CardArt;
 
 typedef struct {
@@ -38,11 +40,14 @@ typedef struct {
   int32_t km;        //!< CARD_ART_DISTANCE
   bool flag;         //!< perigee for CARD_ART_APSIS, ascending for CARD_ART_NODE
   int percent;       //!< CARD_ART_ECLIPSE: share of the diameter in the shadow
-  const char *heading;
+  int level;         //!< CARD_ART_SKY: how high the Moon passes, 0 to 100
+  int trend;         //!< CARD_ART_SKY: 1 higher each day, -1 lower, 0 neither
+  const char *heading;  //!< NULL for none
   int count;
   char lines[MAX_LINES][LINE_LEN];  //!< the first one set larger
-  // When the event comes, drawn after the first line as "time | date".
+  // When the event comes, drawn as "time | date" after line `when_line`.
   bool timed;
+  int when_line;
   char clock[16];
   char date[32];
 } DetailCard;
@@ -56,6 +61,7 @@ static Window *s_window;
 static Layer *s_layer;
 static DetailContent *s_c;
 static Lang s_lang;
+static bool s_southern;
 static int s_card;
 static ArtSlide s_slide;
 
@@ -97,14 +103,34 @@ static char *prv_line(DetailCard *card) {
   return card->count < MAX_LINES ? card->lines[card->count++] : card->lines[MAX_LINES - 1];
 }
 
+/** The time and short date of `t`, drawn after the last line added so far. */
+static void prv_set_when(DetailCard *card, time_t t, bool with_year) {
+  struct tm tm = *localtime(&t);
+  card->timed = true;
+  card->when_line = card->count - 1;
+  i18n_short_date(s_lang, &tm, with_year, card->date, sizeof(card->date));
+  i18n_time(s_lang, &tm, card->clock, sizeof(card->clock));
+}
+
 /** "Today", "Tomorrow" or "In N days" until `t`, then its time and short date. */
 static void prv_add_when(DetailCard *card, time_t now, time_t t, bool with_year) {
   int days = (int)((prv_midnight(t) - prv_midnight(now) + 43200) / 86400);
   i18n_relative(s_lang, days, prv_line(card), LINE_LEN);
-  struct tm tm = *localtime(&t);
-  card->timed = true;
-  i18n_short_date(s_lang, &tm, with_year, card->date, sizeof(card->date));
-  i18n_time(s_lang, &tm, card->clock, sizeof(card->clock));
+  prv_set_when(card, t, with_year);
+}
+
+// The declination keeps within this many degrees of the equator: 23.44 plus
+// the widest inclination of the Moon's orbit, 5.30.
+#define DECLINATION_MAX 28.8
+
+/**
+ * How high the Moon passes at declination `degrees`, from 0 to 100, seen from
+ * the hemisphere of the app: highest when it is farthest on that side.
+ */
+static int prv_sky_level(double degrees) {
+  double toward = s_southern ? -degrees : degrees;
+  int level = (int)((toward + DECLINATION_MAX) * 50.0 / DECLINATION_MAX + 0.5);
+  return level < 0 ? 0 : level > 100 ? 100 : level;
 }
 
 static void prv_build(DetailContent *c, time_t now) {
@@ -132,6 +158,21 @@ static void prv_build(DetailContent *c, time_t now) {
     card->flag = a->perigee;
     prv_add_when(card, now, a->time, false);
     i18n_km(lang, a->distance_km, prv_line(card), LINE_LEN);
+  }
+
+  // Ascending while the declination grows toward the hemisphere of the app,
+  // so that the Moon passes higher in its sky each day, until the next turn.
+  bool ascending = moon_is_declination_northing(now) != s_southern;
+  card = prv_add(c, CARD_ART_SKY, NULL);
+  card->level = prv_sky_level(moon_position(now).declination);
+  card->trend = ascending ? 1 : -1;
+  snprintf(prv_line(card), LINE_LEN, "%s",
+           i18n_word(lang, ascending ? I18N_ASCENDING : I18N_DESCENDING));
+  MoonDeclinationTurn turn;
+  if (moon_declination_turns(now, now + SEARCH_S, &turn, 1) == 1) {
+    snprintf(prv_line(card), LINE_LEN, "%s",
+             i18n_word(lang, turn.northern != s_southern ? I18N_HIGHEST : I18N_LOWEST));
+    prv_set_when(card, turn.time, false);
   }
 
   MoonNode node;
@@ -184,6 +225,9 @@ static void prv_draw_art(GContext *ctx, const DetailCard *card, GPoint center, i
       break;
     case CARD_ART_NODE:
       art_draw_node(ctx, center, r, card->flag);
+      break;
+    case CARD_ART_SKY:
+      art_draw_sky(ctx, center, r, card->level, card->trend);
       break;
     case CARD_ART_DISTANCE: {
       // A full Moon over a bar that fills as the Moon comes closer.
@@ -257,7 +301,7 @@ static int prv_layout_card(GContext *ctx, GRect b, int idx, int y, bool compact)
   y += 2 * r + (card->art == CARD_ART_DISTANCE ? 12 : 4);
 
   if (ctx) graphics_context_set_text_color(ctx, COL_FG);
-  for (int i = -1; i < card->count; i++) {
+  for (int i = card->heading ? -1 : 0; i < card->count; i++) {
     const char *text = i < 0 ? card->heading : card->lines[i];
     GFont font = i < 0 ? f_heading : i == 0 ? f_first : f_rest;
     int h = graphics_text_layout_get_content_size(
@@ -267,7 +311,7 @@ static int prv_layout_card(GContext *ctx, GRect b, int idx, int y, bool compact)
                          GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     }
     y += h + 2;
-    if (i == 0 && card->timed) y = prv_draw_when(ctx, card, f_rest, margin, cw, y) + 2;
+    if (i == card->when_line && card->timed) y = prv_draw_when(ctx, card, f_rest, margin, cw, y) + 2;
   }
   return y;
 }
@@ -346,11 +390,12 @@ static void prv_window_unload(Window *window) {
   s_window = NULL;
 }
 
-void detail_push(time_t now, Lang lang) {
+void detail_push(time_t now, Lang lang, bool southern) {
   if (s_window) return;
   s_c = calloc(1, sizeof(DetailContent));
   if (!s_c) return;
   s_lang = lang;
+  s_southern = southern;
   prv_build(s_c, now);
   s_card = 0;
 

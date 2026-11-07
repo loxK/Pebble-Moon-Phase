@@ -450,7 +450,7 @@ static void prv_select_long_click(ClickRecognizerRef recognizer, void *context);
 #if MOON_HAS_DETAILS
 // SELECT opens the cards about the Moon now; held, it flips the hemisphere.
 static void prv_select_click(ClickRecognizerRef recognizer, void *context) {
-  detail_push(prv_now(), s_lang);
+  detail_push(prv_now(), s_lang, s_southern);
 }
 #endif
 

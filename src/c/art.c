@@ -299,4 +299,32 @@ void art_draw_node(GContext *ctx, GPoint center, int radius, bool ascending) {
               GPoint(center.x + half, back));
   graphics_context_set_stroke_width(ctx, 1);
 }
+
+#define SKY_SEGMENTS 12
+
+void art_draw_sky(GContext *ctx, GPoint center, int radius, int level, int trend) {
+  int horizon = center.y + radius * 7 / 10;
+  int moon_r = radius * 28 / 100;
+  // From 0.45 to 1.35 radius above the horizon, the Moon still inside the art.
+  int top = horizon - radius * (45 + 90 * level / 100) / 100;
+  graphics_context_set_stroke_color(ctx, COL_FG);
+  graphics_context_set_stroke_width(ctx, radius >= 30 ? 3 : 2);
+  graphics_draw_line(ctx, GPoint(center.x - radius, horizon), GPoint(center.x + radius, horizon));
+  // A parabola from one end of the horizon to the other.
+  GPoint prev = GPoint(center.x - radius * 9 / 10, horizon);
+  for (int i = 1; i <= SKY_SEGMENTS; i++) {
+    int u = 2 * i - SKY_SEGMENTS;  // -SKY_SEGMENTS .. SKY_SEGMENTS
+    GPoint p = GPoint(center.x + radius * 9 / 10 * u / SKY_SEGMENTS,
+                      top + (horizon - top) * u * u / (SKY_SEGMENTS * SKY_SEGMENTS));
+    graphics_draw_line(ctx, prev, p);
+    prev = p;
+  }
+  art_draw_moon(ctx, GPoint(center.x, top), moon_r, 0.5, false, COL_FG, COL_BG);
+  if (trend) {
+    int x = center.x + moon_r + radius * 30 / 100, half = radius * 18 / 100;
+    int tip = top - trend * half, back = top + trend * half / 2;
+    prv_chevron(ctx, GPoint(x - half, back), GPoint(x, tip), GPoint(x + half, back));
+  }
+  graphics_context_set_stroke_width(ctx, 1);
+}
 #endif

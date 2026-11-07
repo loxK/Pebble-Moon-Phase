@@ -40,23 +40,38 @@ var PLANETARY_TERMS = [
 ];
 
 /**
+ * Arguments of Meeus ch. 49 at lunation `k`, shared by the phases and the
+ * eclipses (ch. 54): the Sun's mean anomaly M, the Moon's Mp, its argument of
+ * latitude F and the longitude of its ascending node Omega, in degrees.
+ */
+function lunationArgs(k) {
+  var T = k / 1236.85;
+  var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+  return {
+    T: T,
+    T2: T2,
+    jde: 2451550.09766 + 29.530588861 * k
+       + 0.00015437 * T2 - 0.000000150 * T3 + 0.00000000073 * T4,
+    M: 2.5534 + 29.10535670 * k - 0.0000014 * T2 - 0.00000011 * T3,
+    Mp: 201.5643 + 385.81693528 * k + 0.0107582 * T2
+      + 0.00001238 * T3 - 0.000000058 * T4,
+    F: 160.7108 + 390.67050284 * k - 0.0016118 * T2
+     - 0.00000227 * T3 + 0.000000011 * T4,
+    Omega: 124.7746 - 1.56375588 * k + 0.0020672 * T2 + 0.00000215 * T3,
+    E: 1.0 - 0.002516 * T - 0.0000074 * T2,
+  };
+}
+
+/**
  * Julian Day, in UTC, of the phase identified by the continuous lunation value
  * `k` (integer => new moon, +0.25 first quarter, +0.5 full, +0.75 last).
  */
 function phaseJD(k) {
-  var T = k / 1236.85;
-  var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
-
-  var jde = 2451550.09766 + 29.530588861 * k
-          + 0.00015437 * T2 - 0.000000150 * T3 + 0.00000000073 * T4;
-
-  var M = 2.5534 + 29.10535670 * k - 0.0000014 * T2 - 0.00000011 * T3;
-  var Mp = 201.5643 + 385.81693528 * k + 0.0107582 * T2
-         + 0.00001238 * T3 - 0.000000058 * T4;
-  var F = 160.7108 + 390.67050284 * k - 0.0016118 * T2
-        - 0.00000227 * T3 + 0.000000011 * T4;
-  var Omega = 124.7746 - 1.56375588 * k + 0.0020672 * T2 + 0.00000215 * T3;
-  var E = 1.0 - 0.002516 * T - 0.0000074 * T2;
+  var args = lunationArgs(k);
+  var T2 = args.T2;
+  var jde = args.jde;
+  var M = args.M, Mp = args.Mp, F = args.F, Omega = args.Omega;
+  var E = args.E;
   var E2 = E * E;
 
   var quarter = Math.round((k - Math.floor(k)) * 4.0) % 4;
@@ -136,6 +151,135 @@ function phaseJD(k) {
   }
 
   return jde + corr - DELTA_T_DAYS;
+}
+
+/**
+ * The eclipse at the new moon (integer `k`) or full moon (`k` + 0.5) of a
+ * lunation, or null when there is none (Meeus ch. 54).
+ *
+ * Returns { solar: bool, type, magnitude }. A solar eclipse is 'total',
+ * 'annular', 'hybrid' or 'partial', seen from somewhere on Earth; its
+ * magnitude is only given for a partial one. A lunar eclipse is 'total',
+ * 'partial' or 'penumbral', with its umbral magnitude, or its penumbral one
+ * for a penumbral eclipse.
+ */
+function eclipseAt(k) {
+  var a = lunationArgs(k);
+  // Far from a node, the Moon passes above or below the Sun or the shadow.
+  if (Math.abs(sind(a.F)) > 0.36) return null;
+
+  var E = a.E, M = a.M, Mp = a.Mp;
+  var F1 = a.F - 0.02665 * sind(a.Omega);
+  var P = 0.2070 * E * sind(M)
+        + 0.0024 * E * sind(2 * M)
+        - 0.0392 * sind(Mp)
+        + 0.0116 * sind(2 * Mp)
+        - 0.0073 * E * sind(Mp + M)
+        + 0.0067 * E * sind(Mp - M)
+        + 0.0118 * sind(2 * F1);
+  var Q = 5.2207
+        - 0.0048 * E * cosd(M)
+        + 0.0020 * E * cosd(2 * M)
+        - 0.3299 * cosd(Mp)
+        - 0.0060 * E * cosd(Mp + M)
+        + 0.0041 * E * cosd(Mp - M);
+  var W = Math.abs(cosd(F1));
+  // Least distance from the axis of the shadow to the Earth's centre, in Earth
+  // radii, and the radius of the umbral cone in the fundamental plane.
+  var gamma = Math.abs((P * cosd(F1) + Q * sind(F1)) * (1 - 0.0048 * W));
+  var u = 0.0059
+        + 0.0046 * E * cosd(M)
+        - 0.0182 * cosd(Mp)
+        + 0.0004 * cosd(2 * Mp)
+        - 0.0005 * cosd(M + Mp);
+
+  var full = Math.round((k - Math.floor(k)) * 2) % 2 === 1;
+  if (!full) {
+    if (gamma > 1.5433 + u) return null;
+    if (gamma < 0.9972) {
+      var type = u < 0 ? 'total'
+               : u > 0.0047 || u >= 0.00464 * Math.sqrt(1 - gamma * gamma) ? 'annular'
+               : 'hybrid';
+      return { solar: true, type: type, magnitude: null };
+    }
+    // The axis of the shadow misses the Earth: the umbra or antumbra can still
+    // graze it near the poles, otherwise only the penumbra does.
+    if (gamma < 0.9972 + Math.abs(u)) {
+      return { solar: true, type: u < 0 ? 'total' : 'annular', magnitude: null };
+    }
+    return { solar: true, type: 'partial', magnitude: (1.5433 + u - gamma) / (0.5461 + 2 * u) };
+  }
+
+  var penumbral = (1.5573 + u - gamma) / 0.5450;
+  var umbral = (1.0128 - u - gamma) / 0.5450;
+  if (penumbral <= 0) return null;
+  if (umbral >= 1) return { solar: false, type: 'total', magnitude: umbral };
+  if (umbral > 0) return { solar: false, type: 'partial', magnitude: umbral };
+  return { solar: false, type: 'penumbral', magnitude: penumbral };
+}
+
+/**
+ * Julian Day, in UTC, of the Moon's passage through the ascending node of its
+ * orbit (integer `k`) or the descending one (`k` + 0.5), Meeus ch. 51.
+ */
+function nodeJD(k) {
+  var T = k / 1342.23;
+  var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+  var D = 183.6380 + 331.73735682 * k + 0.0014852 * T2 + 0.00000209 * T3 - 0.000000010 * T4;
+  var M = 17.4006 + 26.82037250 * k + 0.0001186 * T2 + 0.00000006 * T3;
+  var Mp = 38.3776 + 355.52747313 * k + 0.0123499 * T2 + 0.000014627 * T3 - 0.000000069 * T4;
+  var Omega = 123.9767 - 1.44098956 * k + 0.0020608 * T2 + 0.00000214 * T3 - 0.000000016 * T4;
+  var V = 299.75 + 132.85 * T - 0.009173 * T2;
+  var P = Omega + 272.75 - 2.3 * T;
+  var E = 1.0 - 0.002516 * T - 0.0000074 * T2;
+
+  var jde = 2451565.1619 + 27.212220817 * k
+          + 0.0002762 * T2 + 0.000000021 * T3 - 0.000000000088 * T4
+          - 0.4721 * sind(Mp)
+          - 0.1649 * sind(2 * D)
+          - 0.0868 * sind(2 * D - Mp)
+          + 0.0084 * sind(2 * D + Mp)
+          - 0.0083 * E * sind(2 * D - M)
+          - 0.0039 * E * sind(2 * D - M - Mp)
+          + 0.0034 * sind(2 * Mp)
+          - 0.0031 * sind(2 * D - 2 * Mp)
+          + 0.0030 * E * sind(2 * D + M)
+          + 0.0028 * E * sind(M - Mp)
+          + 0.0026 * E * sind(M)
+          + 0.0025 * sind(4 * D)
+          + 0.0024 * sind(D)
+          + 0.0022 * E * sind(M + Mp)
+          + 0.0017 * sind(Omega)
+          + 0.0014 * sind(4 * D - Mp)
+          + 0.0005 * E * sind(2 * D + M - Mp)
+          + 0.0004 * E * sind(2 * D - M + Mp)
+          - 0.0003 * E * sind(2 * D - 2 * M)
+          + 0.0003 * E * sind(4 * D - M)
+          + 0.0003 * sind(V)
+          + 0.0003 * sind(P);
+  return jde - DELTA_T_DAYS;
+}
+
+/**
+ * The Moon's passages through the nodes of its orbit, where it crosses the
+ * plane of the Earth's orbit, between `fromEpoch` and `toEpoch`, in
+ * chronological order: { ascending: bool, time: epochSeconds }. Ascending is
+ * northward. Eclipses only happen at a new or full moon close to one.
+ */
+function nodes(fromEpoch, toEpoch) {
+  var d = new Date(fromEpoch * 1000);
+  var yearDec = d.getUTCFullYear() + d.getUTCMonth() / 12.0;
+  var from = jdFromEpoch(fromEpoch), to = jdFromEpoch(toEpoch);
+  var out = [];
+  // A draconic month is 27.2 days; start one passage early to catch the first.
+  for (var k = Math.floor((yearDec - 2000.05) * 13.4223) - 1.0; ; k += 0.5) {
+    var t = nodeJD(k);
+    if (t > to) break;
+    if (t > from) {
+      out.push({ ascending: k === Math.floor(k), time: epochFromJd(t) });
+    }
+  }
+  return out;
 }
 
 function kEstimate(epoch) {
@@ -240,7 +384,7 @@ function apsides(fromEpoch, toEpoch) {
 /**
  * Return the next `count` principal phase events strictly after `nowEpoch`,
  * in chronological order: { type: 0..3, time: epochSeconds, distance: km,
- * supermoon: bool }.
+ * supermoon: bool, eclipse: eclipseAt() of a new or full moon, else null }.
  */
 function upcoming(nowEpoch, count) {
   var jd = jdFromEpoch(nowEpoch);
@@ -259,6 +403,7 @@ function upcoming(nowEpoch, count) {
           time: time,
           distance: distance,
           supermoon: q === 2 && distance < SUPERMOON_KM,
+          eclipse: q === 0 || q === 2 ? eclipseAt(kk) : null,
         });
       }
     }
@@ -266,4 +411,12 @@ function upcoming(nowEpoch, count) {
   return events;
 }
 
-module.exports = { upcoming: upcoming, apsides: apsides, distanceKm: distanceKm };
+module.exports = {
+  upcoming: upcoming,
+  apsides: apsides,
+  nodes: nodes,
+  distanceKm: distanceKm,
+  eclipseAt: eclipseAt,
+  phaseJD: phaseJD,
+  nodeJD: nodeJD,
+};

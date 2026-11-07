@@ -43,6 +43,9 @@ jobs:
             pebble sdk install "$PEBBLE_SDK"
           fi
 
+      - name: Test the phone-side engine
+        run: node tests/engine.test.js
+
       - name: Build
         run: pebble build
 

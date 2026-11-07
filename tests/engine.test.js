@@ -121,6 +121,35 @@ test('upcoming() carries the eclipse of new and full moons only', function () {
   assert.strictEqual(total.eclipse.type, 'total');
 });
 
+test('nextEclipse() skips what the filter rejects', function () {
+  function lunarUmbral(e) { return !e.solar && e.type !== 'penumbral'; }
+  // After the partial eclipse of 2026-08-28, 2027 only has penumbral ones.
+  var next = Moon.nextEclipse(Date.UTC(2026, 8, 1) / 1000, lunarUmbral);
+  assert.strictEqual(new Date(next.time * 1000).toISOString().slice(0, 10), '2028-01-12');
+  assert.strictEqual(next.type, 'partial');
+  var any = Moon.nextEclipse(Date.UTC(2026, 8, 1) / 1000, function () { return true; });
+  assert.strictEqual(new Date(any.time * 1000).toISOString().slice(0, 10), '2027-02-06');
+  assert.ok(any.solar);
+});
+
+// Greatest eclipse in UTC, from the NASA eclipse pages, to the minute.
+var GREATEST = {
+  '2025-03-14T06:59': 'lunar', '2025-09-07T18:12': 'lunar',
+  '2026-03-03T11:34': 'lunar', '2026-08-12T17:46': 'solar',
+  '2026-08-28T04:13': 'lunar', '2027-08-02T10:07': 'solar',
+  '2028-01-12T04:13': 'lunar', '2028-12-31T16:51': 'lunar',
+};
+
+test('greatest eclipse within two minutes of the published time', function () {
+  Object.keys(GREATEST).forEach(function (iso) {
+    var expected = Date.parse(iso + ':00Z') / 1000;
+    var e = Moon.nextEclipse(expected - 3 * 86400, function () { return true; });
+    assert.strictEqual(e.solar, GREATEST[iso] === 'solar', iso);
+    var minutes = (e.time - expected) / 60;
+    assert.ok(Math.abs(minutes) < 2, iso + ' computed ' + new Date(e.time * 1000).toISOString());
+  });
+});
+
 test('distance classes change at their limits', function () {
   var cases = [[356400, 0], [359999, 0], [360000, 1], [374999, 1], [375000, 2],
                [393999, 2], [394000, 3], [403999, 3], [404000, 4], [406700, 4]];

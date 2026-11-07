@@ -157,11 +157,12 @@ function phaseJD(k) {
  * The eclipse at the new moon (integer `k`) or full moon (`k` + 0.5) of a
  * lunation, or null when there is none (Meeus ch. 54).
  *
- * Returns { solar: bool, type, magnitude }. A solar eclipse is 'total',
+ * Returns { solar: bool, type, magnitude, time }. A solar eclipse is 'total',
  * 'annular', 'hybrid' or 'partial', seen from somewhere on Earth; its
  * magnitude is only given for a partial one. A lunar eclipse is 'total',
  * 'partial' or 'penumbral', with its umbral magnitude, or its penumbral one
- * for a penumbral eclipse.
+ * for a penumbral eclipse. `time` is the instant of greatest eclipse, in
+ * epoch seconds, which can be some way off the instant of the phase.
  */
 function eclipseAt(k) {
   var a = lunationArgs(k);
@@ -170,6 +171,30 @@ function eclipseAt(k) {
 
   var E = a.E, M = a.M, Mp = a.Mp;
   var F1 = a.F - 0.02665 * sind(a.Omega);
+  var full = Math.round((k - Math.floor(k)) * 2) % 2 === 1;
+
+  var A1 = 299.77 + 0.107408 * k - 0.009173 * a.T2;
+  var jde = a.jde
+          + (full ? -0.4065 : -0.4075) * sind(Mp)
+          + (full ? 0.1727 : 0.1721) * E * sind(M)
+          + 0.0161 * sind(2 * Mp)
+          - 0.0097 * sind(2 * F1)
+          + 0.0073 * E * sind(Mp - M)
+          - 0.0050 * E * sind(Mp + M)
+          - 0.0023 * sind(Mp - 2 * F1)
+          + 0.0021 * E * sind(2 * M)
+          + 0.0012 * sind(Mp + 2 * F1)
+          + 0.0006 * E * sind(2 * Mp + M)
+          - 0.0004 * sind(3 * Mp)
+          - 0.0003 * E * sind(M + 2 * F1)
+          + 0.0003 * sind(A1)
+          - 0.0002 * E * sind(M - 2 * F1)
+          - 0.0002 * E * sind(2 * Mp - M)
+          - 0.0002 * sind(a.Omega);
+  var time = epochFromJd(jde - DELTA_T_DAYS);
+  function eclipse(solar, type, magnitude) {
+    return { solar: solar, type: type, magnitude: magnitude, time: time };
+  }
   var P = 0.2070 * E * sind(M)
         + 0.0024 * E * sind(2 * M)
         - 0.0392 * sind(Mp)
@@ -193,29 +218,28 @@ function eclipseAt(k) {
         + 0.0004 * cosd(2 * Mp)
         - 0.0005 * cosd(M + Mp);
 
-  var full = Math.round((k - Math.floor(k)) * 2) % 2 === 1;
   if (!full) {
     if (gamma > 1.5433 + u) return null;
     if (gamma < 0.9972) {
       var type = u < 0 ? 'total'
                : u > 0.0047 || u >= 0.00464 * Math.sqrt(1 - gamma * gamma) ? 'annular'
                : 'hybrid';
-      return { solar: true, type: type, magnitude: null };
+      return eclipse(true, type, null);
     }
     // The axis of the shadow misses the Earth: the umbra or antumbra can still
     // graze it near the poles, otherwise only the penumbra does.
     if (gamma < 0.9972 + Math.abs(u)) {
-      return { solar: true, type: u < 0 ? 'total' : 'annular', magnitude: null };
+      return eclipse(true, u < 0 ? 'total' : 'annular', null);
     }
-    return { solar: true, type: 'partial', magnitude: (1.5433 + u - gamma) / (0.5461 + 2 * u) };
+    return eclipse(true, 'partial', (1.5433 + u - gamma) / (0.5461 + 2 * u));
   }
 
   var penumbral = (1.5573 + u - gamma) / 0.5450;
   var umbral = (1.0128 - u - gamma) / 0.5450;
   if (penumbral <= 0) return null;
-  if (umbral >= 1) return { solar: false, type: 'total', magnitude: umbral };
-  if (umbral > 0) return { solar: false, type: 'partial', magnitude: umbral };
-  return { solar: false, type: 'penumbral', magnitude: penumbral };
+  if (umbral >= 1) return eclipse(false, 'total', umbral);
+  if (umbral > 0) return eclipse(false, 'partial', umbral);
+  return eclipse(false, 'penumbral', penumbral);
 }
 
 /**
@@ -280,6 +304,20 @@ function nodes(fromEpoch, toEpoch) {
     }
   }
   return out;
+}
+
+/**
+ * The first eclipse whose greatest phase comes after `fromEpoch` and for which
+ * `accept(eclipse)` is true, as eclipseAt() gives it, or null if none comes
+ * within five years.
+ */
+function nextEclipse(fromEpoch, accept) {
+  var kBase = Math.floor(kEstimate(fromEpoch)) - 1.0;
+  for (var k = kBase; k < kBase + 62.0; k += 0.5) {
+    var eclipse = eclipseAt(k);
+    if (eclipse && eclipse.time > fromEpoch && accept(eclipse)) return eclipse;
+  }
+  return null;
 }
 
 function kEstimate(epoch) {
@@ -417,6 +455,7 @@ module.exports = {
   nodes: nodes,
   distanceKm: distanceKm,
   eclipseAt: eclipseAt,
+  nextEclipse: nextEclipse,
   phaseJD: phaseJD,
   nodeJD: nodeJD,
 };

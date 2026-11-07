@@ -824,8 +824,17 @@ static void prv_select_long_click(ClickRecognizerRef recognizer, void *context) 
 }
 
 // ----------------------------------------------------------------------------
-// AppMessage (hemisphere update from the phone)
+// AppMessage (hemisphere from the phone, clock style back to it)
 // ----------------------------------------------------------------------------
+
+// The phone writes times into the timeline pins and cannot read the watch's
+// clock style, so the watch tells it whenever the phone gets in touch.
+static void prv_send_clock_style(void) {
+  DictionaryIterator *out;
+  if (app_message_outbox_begin(&out) != APP_MSG_OK) return;
+  dict_write_uint8(out, MESSAGE_KEY_Clock24h, clock_is_24h_style() ? 1 : 0);
+  app_message_outbox_send();
+}
 
 static void prv_inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *hemi = dict_find(iter, MESSAGE_KEY_Hemisphere);
@@ -833,6 +842,7 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
     s_southern = hemi->value->int32 ? 1 : 0;
     persist_write_int(PERSIST_KEY_HEMISPHERE, s_southern);
     if (s_main_layer) layer_mark_dirty(s_main_layer);
+    prv_send_clock_style();
   }
 }
 
@@ -882,8 +892,7 @@ static void prv_init(void) {
   prv_refresh_data();
 
   app_message_register_inbox_received(prv_inbox_received);
-  // Only the phone talks: the watch has nothing to send, and needs no outbox.
-  app_message_open(64, 0);
+  app_message_open(64, 32);
   tick_timer_service_subscribe(HOUR_UNIT, prv_tick);
 
   // Third-party apps get no touch input until they ask for it: a vertical swipe

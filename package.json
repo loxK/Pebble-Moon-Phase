@@ -28,7 +28,8 @@
       "Timeline"
     ],
     "messageKeys": [
-      "Hemisphere"
+      "Hemisphere",
+      "Clock24h"
     ],
     "resources": {
       "media": [

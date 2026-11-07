@@ -100,16 +100,17 @@ var NODE_DIRECTIONS = {
   'zh-TW': ['向北', '向南'],
 };
 
-// Section headings of the pin detail view: [distance, next phase, nearest phase].
+// Section headings of the pin detail view:
+// [distance, next phase, nearest phase, next eclipse].
 var DETAIL_HEADINGS = {
-  en: ['Distance', 'Next phase', 'Nearest phase'],
-  fr: ['Distance', 'Phase suivante', 'Phase la plus proche'],
-  de: ['Entfernung', 'Nächste Phase', 'Nächstgelegene Phase'],
-  es: ['Distancia', 'Próxima fase', 'Fase más cercana'],
-  it: ['Distanza', 'Prossima fase', 'Fase più vicina'],
-  pt: ['Distância', 'Próxima fase', 'Fase mais próxima'],
-  'zh-CN': ['距离', '下一月相', '最近的月相'],
-  'zh-TW': ['距離', '下一月相', '最近的月相'],
+  en: ['Distance', 'Next phase', 'Nearest phase', 'Next eclipse'],
+  fr: ['Distance', 'Phase suivante', 'Phase la plus proche', 'Prochaine éclipse'],
+  de: ['Entfernung', 'Nächste Phase', 'Nächstgelegene Phase', 'Nächste Finsternis'],
+  es: ['Distancia', 'Próxima fase', 'Fase más cercana', 'Próximo eclipse'],
+  it: ['Distanza', 'Prossima fase', 'Fase più vicina', 'Prossima eclissi'],
+  pt: ['Distância', 'Próxima fase', 'Fase mais próxima', 'Próximo eclipse'],
+  'zh-CN': ['距离', '下一月相', '最近的月相', '下次月食'],
+  'zh-TW': ['距離', '下一月相', '最近的月相', '下次月食'],
 };
 
 // Thousands separator for the distances, and what goes between a number and
@@ -207,26 +208,48 @@ var MONTHS = {
        'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
 };
 
-// Full localized date with weekday, e.g. "mardi 28 juin", in the phone's local
-// timezone. Shown in the pin detail view. Layout follows the same per-locale
-// convention as the C DateStyle.
-function longDate(epoch) {
+// Full localized date with weekday, e.g. "mardi 28 juin", or "mardi 28 juin
+// 2028" with `withYear`, in the phone's local timezone. Shown in the pin
+// detail view. Layout follows the same per-locale convention as the C
+// DateStyle.
+function longDate(epoch, withYear) {
   var d = new Date(epoch * 1000);
   var lang = pickLang();
   var wd = WEEKDAYS[lang][d.getDay()];
   var day = d.getDate();
   var mon = d.getMonth();  // 0-11
+  var y = d.getFullYear();
   switch (lang) {
-    case 'en':    return wd + ', ' + MONTHS.en[mon] + ' ' + day;
-    case 'de':    return wd + ', ' + day + '. ' + MONTHS.de[mon];
-    case 'es':    return wd + ', ' + day + ' de ' + MONTHS.es[mon];
-    case 'pt':    return wd + ', ' + day + ' de ' + MONTHS.pt[mon];
-    case 'zh-CN': return (mon + 1) + '月' + day + '日 ' + wd;
-    case 'zh-TW': return (mon + 1) + '月' + day + '日 ' + wd;
+    case 'en':    return wd + ', ' + MONTHS.en[mon] + ' ' + day + (withYear ? ', ' + y : '');
+    case 'de':    return wd + ', ' + day + '. ' + MONTHS.de[mon] + (withYear ? ' ' + y : '');
+    case 'es':    return wd + ', ' + day + ' de ' + MONTHS.es[mon] + (withYear ? ' de ' + y : '');
+    case 'pt':    return wd + ', ' + day + ' de ' + MONTHS.pt[mon] + (withYear ? ' de ' + y : '');
+    case 'zh-CN':
+    case 'zh-TW': return (withYear ? y + '年' : '') + (mon + 1) + '月' + day + '日 ' + wd;
     case 'fr':
     case 'it':
-    default:      return wd + ' ' + day + ' ' + MONTHS[lang][mon];
+    default:      return wd + ' ' + day + ' ' + MONTHS[lang][mon] + (withYear ? ' ' + y : '');
   }
+}
+
+/**
+ * Whether the watch shows the time on a 24-hour clock, as it last said (see
+ * the appmessage listener). Until it has, English reads 12-hour and the other
+ * languages 24-hour.
+ */
+function clock24h() {
+  var stored = lsGet('clock24h');
+  return stored !== null ? stored === '1' : pickLang() !== 'en';
+}
+
+// Time of day in the phone's local timezone, "21:07" or "9:07 PM" by the
+// watch's clock style.
+function clockTime(epoch) {
+  var d = new Date(epoch * 1000);
+  var min = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+  if (clock24h()) return d.getHours() + ':' + min;
+  var h = d.getHours() % 12 || 12;
+  return h + ':' + min + (d.getHours() < 12 ? '\u00a0AM' : '\u00a0PM');
 }
 
 // Distance rounded to the km with the language's grouping, e.g. "356 979 km";
@@ -394,8 +417,18 @@ function formatShadow(eclipse, lang) {
   return percent + PERCENT_SPACE[lang] + '%';
 }
 
-/** Layout text of a pin; `sections` is a list of [heading, paragraph]. */
-function pinText(title, subtitle, time, sections) {
+/**
+ * Layout text of a pin; `sections` is a list of [heading, paragraph]. Every
+ * pin ends with the next eclipse after its time and the time of its greatest
+ * phase, dated with the year since it can be more than a year ahead.
+ */
+function pinText(title, subtitle, time, sections, lang) {
+  var next = Moon.nextEclipse(time, isShownEclipse);
+  if (next) {
+    sections = sections.concat([[DETAIL_HEADINGS[lang][3],
+      ECLIPSE_TITLES[lang][next.type === 'total' ? 0 : 1] + ' (' + formatShadow(next, lang) + ')\n'
+        + longDate(next.time, true) + '\n' + clockTime(next.time)]]);
+  }
   return {
     title: title,
     subtitle: subtitle,
@@ -428,7 +461,8 @@ function phaseText(ev, next, coming, lang) {
       : [nodeTitle(c, lang), longDate(c.time)]);
   });
   sections.push([DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]);
-  return pinText(phaseTitle(ev, lang), Distance.distanceLabel(ev.distance, lang), ev.time, sections);
+  return pinText(phaseTitle(ev, lang), Distance.distanceLabel(ev.distance, lang), ev.time,
+                 sections, lang);
 }
 
 /**
@@ -440,7 +474,7 @@ function apsisText(a, nearest, lang) {
   return pinText(apsisTitle(a, lang), formatKm(a.distance), a.time, [
     distanceSection(a.distance, lang),
     [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
-  ]);
+  ], lang);
 }
 
 /**
@@ -452,7 +486,7 @@ function nodeText(n, nearest, lang) {
   return pinText(nodeTitle(n, lang), NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time, [
     distanceSection(Moon.distanceKm(n.time), lang),
     [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
-  ]);
+  ], lang);
 }
 
 /** The event of `events` closest in time to `time`. */
@@ -495,8 +529,11 @@ function pushMoonPins() {
     else if (southern && ev.type === 3) iconType = 1;
     var next = computed[i + 1];
     var coming = others.filter(function (o) { return o.time > ev.time && o.time < next.time; });
-    return moonPin('moon-' + ev.time, ev.time, phaseText(ev, next, coming, lang),
-                   PHASE_ICON_NAME[iconType]);
+    // An eclipsed full moon is pinned at its greatest eclipse, under the id of
+    // its phase so the pin replaces the plain one.
+    var eclipse = lunarEclipse(ev);
+    return moonPin('moon-' + ev.time, eclipse ? eclipse.time : ev.time,
+                   phaseText(ev, next, coming, lang), PHASE_ICON_NAME[iconType]);
   }).concat(others.filter(function (o) { return o.time <= lastPinned; }).map(function (o) {
     var nearest = nearestInTime(around, o.time);
     if ('perigee' in o) {
@@ -536,3 +573,12 @@ Pebble.addEventListener('ready', function () {
   pushMoonPins();
 });
 
+// The watch answers the hemisphere with its clock style; the pins go out again
+// when it changed, since their times are written by it.
+Pebble.addEventListener('appmessage', function (e) {
+  if (e.payload.Clock24h === undefined) return;
+  var value = e.payload.Clock24h ? '1' : '0';
+  if (lsGet('clock24h') === value) return;
+  lsSet('clock24h', value);
+  pushMoonPins();
+});

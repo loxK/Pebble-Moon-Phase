@@ -267,7 +267,11 @@ function deleteSupersededPins(pins, earlierIds, now) {
   });
 }
 
-/** A timeline pin in the app's colours. */
+/**
+ * A timeline pin in the app's colours. The background is GColorOxfordBlue
+ * exactly: the phone app maps #RRGGBB onto the watch palette by flooring each
+ * channel, so a colour off the palette can come out darker, down to black.
+ */
 function moonPin(id, time, title, body, iconName) {
   var iconUri = 'app://images/' + iconName;
   return {
@@ -279,7 +283,7 @@ function moonPin(id, time, title, body, iconName) {
       body: body,
       tinyIcon: iconUri,
       largeIcon: iconUri,
-      backgroundColor: '#001E41',
+      backgroundColor: '#000055',
       primaryColor: '#FFFFFF',
     },
   };

@@ -242,12 +242,12 @@ function clock24h() {
   return stored !== null ? stored === '1' : pickLang() !== 'en';
 }
 
-// Time of day in the phone's local timezone, "21:07" or "9:07 PM" by the
+// Time of day in the phone's local timezone, "09:07" or "9:07 PM" by the
 // watch's clock style.
 function clockTime(epoch) {
   var d = new Date(epoch * 1000);
   var min = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-  if (clock24h()) return d.getHours() + ':' + min;
+  if (clock24h()) return (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + min;
   var h = d.getHours() % 12 || 12;
   return h + ':' + min + (d.getHours() < 12 ? '\u00a0AM' : '\u00a0PM');
 }
@@ -470,7 +470,14 @@ function phaseText(ev, next, coming, lang) {
   });
   sections.push([DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]);
   var nodeListed = coming.some(function (c) { return 'ascending' in c; });
-  return pinText(phaseTitle(ev, lang), Distance.distanceLabel(ev.distance, lang), ev.time,
+  // A supermoon is always very close: when the eclipse takes the title, the
+  // supermoon takes the place of the distance in words.
+  var subtitle = eclipse && ev.supermoon
+    ? SUPERMOON_TITLES[lang] : Distance.distanceLabel(ev.distance, lang);
+  // An eclipsed full moon is dated at its greatest eclipse, which can come
+  // after the phase: the next eclipse is looked for from there, not to find
+  // this one again.
+  return pinText(phaseTitle(ev, lang), subtitle, eclipse ? eclipse.time : ev.time,
                  sections, lang, nodeListed);
 }
 
@@ -493,7 +500,7 @@ function apsisText(a, nearest, lang) {
  */
 function nodeText(n, nearest, lang) {
   return pinText(nodeTitle(n, lang), NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time, [
-    distanceSection(Moon.distanceKm(n.time), lang),
+    distanceSection(Math.round(Moon.distanceKm(n.time)), lang),
     [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
   ], lang);
 }

@@ -100,6 +100,43 @@ var NODE_DIRECTIONS = {
   'zh-TW': ['向北', '向南'],
 };
 
+// Whether the Moon passes higher or lower each day, then the turn that ends
+// it: [ascending, descending, highest, lowest].
+var SKY_WORDS = {
+  en: ['Ascending', 'Descending', 'Highest', 'Lowest'],
+  fr: ['Montante', 'Descendante', 'Au plus haut', 'Au plus bas'],
+  de: ['Aufsteigend', 'Absteigend', 'Höchststand', 'Tiefststand'],
+  es: ['Ascendente', 'Descendente', 'Más alta', 'Más baja'],
+  it: ['Ascendente', 'Discendente', 'Più alta', 'Più bassa'],
+  pt: ['Ascendente', 'Descendente', 'Mais alta', 'Mais baixa'],
+  'zh-CN': ['渐升', '渐降', '最高', '最低'],
+  'zh-TW': ['漸升', '漸降', '最高', '最低'],
+};
+
+// Whether the lit part of the Moon grows or shrinks: [waxing, waning].
+var LIGHT_WORDS = {
+  en: ['Waxing', 'Waning'],
+  fr: ['Croissante', 'Décroissante'],
+  de: ['Zunehmend', 'Abnehmend'],
+  es: ['Creciente', 'Menguante'],
+  it: ['Crescente', 'Calante'],
+  pt: ['Crescente', 'Minguante'],
+  'zh-CN': ['渐盈', '渐亏'],
+  'zh-TW': ['漸盈', '漸虧'],
+};
+
+// Headings of the next perigee and apogee in the pin detail view.
+var NEXT_APSIS_HEADINGS = {
+  en: ['Next perigee', 'Next apogee'],
+  fr: ['Prochain périgée', 'Prochain apogée'],
+  de: ['Nächstes Perigäum', 'Nächstes Apogäum'],
+  es: ['Próximo perigeo', 'Próximo apogeo'],
+  it: ['Prossimo perigeo', 'Prossimo apogeo'],
+  pt: ['Próximo perigeu', 'Próximo apogeu'],
+  'zh-CN': ['下次近地点', '下次远地点'],
+  'zh-TW': ['下次近地點', '下次遠地點'],
+};
+
 // Section headings of the pin detail view:
 // [distance, next phase, nearest phase, next eclipse, next node].
 var DETAIL_HEADINGS = {
@@ -418,24 +455,54 @@ function formatShadow(eclipse, lang) {
 }
 
 /**
- * Layout text of a pin; `sections` is a list of [heading, paragraph]. Every
- * pin ends with the next node passage after its time, unless `nodeListed`
- * says the pin already names it, then with the next eclipse and the time of
- * its greatest phase, dated with the year since it can be more than a year
- * ahead.
+ * Whether the Moon passes higher or lower each day at `time`, seen from the
+ * hemisphere of the phone, and the next turn that ends it: { ascending, turn },
+ * `turn` undefined if none comes within half a month and a bit.
  */
-function pinText(title, subtitle, time, sections, lang, nodeListed) {
-  // A minute on, so a node pin, whose time is rounded, does not find itself.
+function skyAt(time) {
+  var southern = lsGet('hemi') === '1';
+  var turn = Moon.declinationTurns(time + 60, time + 16 * 86400)[0];
+  return {
+    ascending: Moon.isDeclinationNorthing(time) !== southern,
+    turn: turn && { highest: turn.northern !== southern, time: turn.time },
+  };
+}
+
+/** `text` with its first letter in lower case, to follow another word. */
+function lowerFirst(text) {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/**
+ * Text of a pin. Its detail starts with `lead`, the phase it relates to, then
+ * follows the cards of the watch app: the distance `km` in words and in km,
+ * the next apogee and perigee, whether the Moon passes higher or lower each
+ * day and until when, the next node passage and the next lunar eclipse. Each
+ * is looked for from a minute after `time`, so a pin whose time is rounded
+ * does not find itself.
+ */
+function pinText(title, subtitle, time, km, lead, lang) {
+  var sections = lead.concat([distanceSection(km, lang)]);
+  Moon.apsides(time + 60, time + 32 * 86400).slice(0, 2).forEach(function (a) {
+    sections.push([NEXT_APSIS_HEADINGS[lang][a.perigee ? 0 : 1],
+      longDate(a.time) + '\n' + clockTime(a.time) + '\n' + formatKm(a.distance)]);
+  });
+  var sky = skyAt(time);
+  if (sky.turn) {
+    sections.push([SKY_WORDS[lang][sky.ascending ? 0 : 1],
+      SKY_WORDS[lang][sky.turn.highest ? 2 : 3] + '\n' + longDate(sky.turn.time) + '\n'
+        + clockTime(sky.turn.time)]);
+  }
   var node = Moon.nodes(time + 60, time + 16 * 86400)[0];
-  if (node && !nodeListed) {
-    sections = sections.concat([[DETAIL_HEADINGS[lang][4],
-      nodeTitle(node, lang) + '\n' + longDate(node.time) + '\n' + clockTime(node.time)]]);
+  if (node) {
+    sections.push([DETAIL_HEADINGS[lang][4],
+      nodeTitle(node, lang) + '\n' + longDate(node.time) + '\n' + clockTime(node.time)]);
   }
   var next = Moon.nextEclipse(time, isShownEclipse);
   if (next) {
-    sections = sections.concat([[DETAIL_HEADINGS[lang][3],
+    sections.push([DETAIL_HEADINGS[lang][3],
       ECLIPSE_TITLES[lang][next.type === 'total' ? 0 : 1] + ' (' + formatShadow(next, lang) + ')\n'
-        + longDate(next.time, true) + '\n' + clockTime(next.time)]]);
+        + longDate(next.time, true) + '\n' + clockTime(next.time)]);
   }
   return {
     title: title,
@@ -452,55 +519,43 @@ function distanceSection(km, lang) {
 }
 
 /**
- * Text of a phase pin. The list shows how far the Moon is in words; the detail
- * adds how much of the Moon its eclipse covers, if any, the km, then what
- * comes before the next phase, in order: perigees and apogees ({ perigee,
- * time, distance }) and node passages ({ ascending, time }), and that next
- * phase.
+ * Text of a phase pin. The list shows whether the Moon waxes or wanes and
+ * whether it passes higher or lower each day, both from a minute after the
+ * phase, so that a new moon waxes and a full moon wanes; the detail starts
+ * with the next phase and how much of the Moon its eclipse covers, if any.
  */
-function phaseText(ev, next, coming, lang) {
-  var sections = [];
+function phaseText(ev, next, lang) {
   var eclipse = lunarEclipse(ev);
-  if (eclipse) sections.push([SHADOW_HEADINGS[lang], formatShadow(eclipse, lang)]);
-  sections.push(distanceSection(ev.distance, lang));
-  coming.forEach(function (c) {
-    sections.push('perigee' in c
-      ? [apsisTitle(c, lang), longDate(c.time) + '\n' + formatKm(c.distance)]
-      : [nodeTitle(c, lang), longDate(c.time)]);
-  });
-  sections.push([DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]);
-  var nodeListed = coming.some(function (c) { return 'ascending' in c; });
-  // A supermoon is always very close: when the eclipse takes the title, the
-  // supermoon takes the place of the distance in words.
-  var subtitle = eclipse && ev.supermoon
-    ? SUPERMOON_TITLES[lang] : Distance.distanceLabel(ev.distance, lang);
   // An eclipsed full moon is dated at its greatest eclipse, which can come
-  // after the phase: the next eclipse is looked for from there, not to find
-  // this one again.
-  return pinText(phaseTitle(ev, lang), subtitle, eclipse ? eclipse.time : ev.time,
-                 sections, lang, nodeListed);
+  // after the phase: what follows is looked for from there, not to find this
+  // eclipse again.
+  var time = eclipse ? eclipse.time : ev.time;
+  var lead = [[DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]];
+  if (eclipse) lead.push([SHADOW_HEADINGS[lang], formatShadow(eclipse, lang)]);
+  var subtitle = LIGHT_WORDS[lang][Moon.lunationFraction(ev.time + 60) < 0.5 ? 0 : 1] + ' & '
+    + lowerFirst(SKY_WORDS[lang][skyAt(time + 60).ascending ? 0 : 1]);
+  return pinText(phaseTitle(ev, lang), subtitle, time, ev.distance, lead, lang);
 }
 
 /**
  * Text of a perigee or apogee pin. Its class in words says little (a perigee
  * is always close, an apogee always far), so the list shows the km; the
- * detail adds the phase nearest in time.
+ * detail starts with the phase nearest in time.
  */
 function apsisText(a, nearest, lang) {
-  return pinText(apsisTitle(a, lang), formatKm(a.distance), a.time, [
-    distanceSection(a.distance, lang),
+  return pinText(apsisTitle(a, lang), formatKm(a.distance), a.time, a.distance, [
     [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
   ], lang);
 }
 
 /**
  * Text of a node pin: which way the Moon crosses the plane of the Earth's
- * orbit, and in the detail its distance and the phase nearest in time, which
- * names the eclipse when there is one.
+ * orbit, and in the detail the phase nearest in time, which names the eclipse
+ * when there is one.
  */
 function nodeText(n, nearest, lang) {
-  return pinText(nodeTitle(n, lang), NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time, [
-    distanceSection(Math.round(Moon.distanceKm(n.time)), lang),
+  return pinText(nodeTitle(n, lang), NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time,
+                 Math.round(Moon.distanceKm(n.time)), [
     [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
   ], lang);
 }
@@ -544,12 +599,11 @@ function pushMoonPins() {
     if (southern && ev.type === 1) iconType = 3;
     else if (southern && ev.type === 3) iconType = 1;
     var next = computed[i + 1];
-    var coming = others.filter(function (o) { return o.time > ev.time && o.time < next.time; });
     // An eclipsed full moon is pinned at its greatest eclipse, under the id of
     // its phase so the pin replaces the plain one.
     var eclipse = lunarEclipse(ev);
     return moonPin('moon-' + ev.time, eclipse ? eclipse.time : ev.time,
-                   phaseText(ev, next, coming, lang), PHASE_ICON_NAME[iconType]);
+                   phaseText(ev, next, lang), PHASE_ICON_NAME[iconType]);
   }).concat(others.filter(function (o) { return o.time <= lastPinned; }).map(function (o) {
     var nearest = nearestInTime(around, o.time);
     if ('perigee' in o) {

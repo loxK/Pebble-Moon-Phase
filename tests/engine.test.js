@@ -121,6 +121,14 @@ test('upcoming() carries the eclipse of new and full moons only', function () {
   assert.strictEqual(total.eclipse.type, 'total');
 });
 
+test('upcoming() from a phase\'s own time returns the phase after it', function () {
+  var events = Moon.upcoming(Date.UTC(2026, 0, 1) / 1000, 150);
+  for (var i = 0; i + 1 < events.length; i++) {
+    var next = Moon.upcoming(events[i].time, 1)[0];
+    assert.strictEqual(next.time, events[i + 1].time, new Date(events[i].time * 1000).toISOString());
+  }
+});
+
 test('nextEclipse() skips what the filter rejects', function () {
   function lunarUmbral(e) { return !e.solar && e.type !== 'penumbral'; }
   // After the partial eclipse of 2026-08-28, 2027 only has penumbral ones.
@@ -147,6 +155,112 @@ test('greatest eclipse within two minutes of the published time', function () {
     assert.strictEqual(e.solar, GREATEST[iso] === 'solar', iso);
     var minutes = (e.time - expected) / 60;
     assert.ok(Math.abs(minutes) < 2, iso + ' computed ' + new Date(e.time * 1000).toISOString());
+  });
+});
+
+// The watch engine, src/c/moon_phase.c, built on the host against
+// tests/host/pebble.h, must find the same events as this one. Its own sine and
+// cosine are good to 3e-8, which can move a time by a second, an apsis rounded
+// to the minute by one minute, a distance rounded to the km by one km.
+function dumpCEngine(from, to) {
+  var childProcess = require('child_process');
+  var fs = require('fs');
+  var os = require('os');
+  var root = path.join(__dirname, '..');
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moon-engine-'));
+  var bin = path.join(dir, 'engine_dump');
+  try {
+    childProcess.execFileSync('cc', [
+      '-std=c11', '-Wall', '-Wextra', '-Werror', '-O1',
+      '-I', path.join(__dirname, 'host'), '-I', path.join(root, 'src', 'c'),
+      '-o', bin, path.join(__dirname, 'host', 'engine_dump.c'),
+      path.join(root, 'src', 'c', 'moon_phase.c'), '-lm',
+    ], { stdio: ['ignore', 'ignore', 'inherit'] });
+    return childProcess.execFileSync(bin, ['' + from, '' + to], { encoding: 'utf8' });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function hasCompiler() {
+  try {
+    require('child_process').execFileSync('cc', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function jsEngineLines(from, to) {
+  function lunarUmbral(e) { return !e.solar && e.type !== 'penumbral'; }
+  var lines = [];
+  // upcoming() looks 40 lunations ahead at most, so the range goes in steps.
+  for (var start = from, done = false; !done;) {
+    var batch = Moon.upcoming(start, 100);
+    for (var i = 0; i < batch.length; i++) {
+      var ev = batch[i], e = ev.eclipse;
+      if (ev.time > to) { done = true; break; }
+      lines.push(['phase', ev.time, ev.type, ev.distance, e ? e.type : 'none', e && e.solar ? 1 : 0,
+                  e ? e.time : 0, e ? e.magnitude || 0 : 0]);
+    }
+    start = batch[batch.length - 1].time;
+  }
+  Moon.nodes(from, to).forEach(function (n) { lines.push(['node', n.time, n.ascending ? 1 : 0]); });
+  Moon.apsides(from, to).forEach(function (a) {
+    lines.push(['apsis', a.time, a.perigee ? 1 : 0, a.distance]);
+  });
+  for (var d = from; d <= to; d += 86400) {
+    lines.push(['state', d, Moon.lunationFraction(d), Moon.isApproaching(d) ? 1 : 0,
+                Math.round(Moon.distanceKm(d))]);
+  }
+  for (var t = from; t <= to; t += 30 * 86400) {
+    var next = Moon.nextEclipse(t, lunarUmbral);
+    if (next) lines.push(['next', t, next.time, next.type, next.magnitude]);
+  }
+  return lines;
+}
+
+test('the watch engine finds the same events, 2000 to 2050', function () {
+  if (!hasCompiler()) {
+    console.log('     (no C compiler, skipped)');
+    return;
+  }
+  var from = Date.UTC(2000, 0, 1) / 1000, to = Date.UTC(2050, 0, 1) / 1000;
+  var c = dumpCEngine(from, to).trim().split('\n').map(function (l) { return l.split(' '); });
+  var js = jsEngineLines(from, to);
+  // Asked from a phase's own time, the search returns the phase after it.
+  var phases = c.filter(function (l) { return l[0] === 'phase'; });
+  c.filter(function (l) { return l[0] === 'follow'; }).forEach(function (l, i) {
+    if (i + 1 < phases.length) {
+      assert.strictEqual(l[2], phases[i + 1][1], 'C follow ' + new Date(l[1] * 1000).toISOString());
+    }
+  });
+  ['phase', 'node', 'apsis', 'next', 'state'].forEach(function (kind) {
+    var a = c.filter(function (l) { return l[0] === kind; });
+    var b = js.filter(function (l) { return l[0] === kind; });
+    assert.strictEqual(a.length, b.length, kind + ': ' + a.length + ' in C, ' + b.length + ' in JS');
+    a.forEach(function (l, i) {
+      var r = b[i];
+      var where = kind + ' ' + new Date(r[1] * 1000).toISOString();
+      function near(field, tolerance) {
+        var d = Math.abs(Number(l[field]) - Number(r[field]));
+        assert.ok(d <= tolerance, where + ': field ' + field + ' C ' + l[field] + ', JS ' + r[field]);
+      }
+      function same(field) {
+        assert.strictEqual(String(l[field]), String(r[field]), where + ': field ' + field);
+      }
+      if (kind === 'phase') {
+        near(1, 2); same(2); near(3, 1); same(4); same(5); near(6, 2); near(7, 0.001);
+      } else if (kind === 'node') {
+        near(1, 2); same(2);
+      } else if (kind === 'apsis') {
+        near(1, 60); same(2); near(3, 1);
+      } else if (kind === 'state') {
+        same(1); near(2, 0.00001); same(3); near(4, 1);
+      } else {
+        same(1); near(2, 2); same(3); near(4, 0.001);
+      }
+    });
   });
 });
 

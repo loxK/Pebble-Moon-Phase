@@ -320,6 +320,35 @@ function nextEclipse(fromEpoch, accept) {
   return null;
 }
 
+// Mean length of the synodic month, in days.
+var SYNODIC_MONTH = 29.530588861;
+
+/**
+ * Position of the Moon in the lunation at `nowEpoch`: 0 new, 0.25 first
+ * quarter, 0.5 full, 0.75 last quarter.
+ *
+ * `nowEpoch` is bracketed between two principal phases, starting a quarter
+ * before the mean one: the true phases stay within a day of the mean ones,
+ * well inside a quarter, so a couple of steps either way always find it. The
+ * position runs linearly between the two, so it matches each phase at its
+ * instant.
+ */
+function lunationFraction(nowEpoch) {
+  var jd = jdFromEpoch(nowEpoch);
+  var q = Math.floor((jd - 2451550.09766) / SYNODIC_MONTH * 4.0) / 4.0 - 0.25;
+  var ta = phaseJD(q), tb = phaseJD(q + 0.25);
+  for (var i = 0; i < 3 && tb <= jd; i++) {
+    q += 0.25; ta = tb; tb = phaseJD(q + 0.25);
+  }
+  for (var j = 0; j < 3 && jd < ta; j++) {
+    q -= 0.25; tb = ta; ta = phaseJD(q);
+  }
+  var fraction = (q - Math.floor(q)) + 0.25 * (jd - ta) / (tb - ta);
+  if (fraction < 0.0) fraction += 1.0;
+  if (fraction >= 1.0) fraction -= 1.0;
+  return fraction;
+}
+
 function kEstimate(epoch) {
   var d = new Date(epoch * 1000);
   var yearDec = d.getUTCFullYear() + (d.getUTCMonth() / 12.0);
@@ -375,6 +404,15 @@ function distanceKm(epoch) {
 }
 
 /**
+ * Whether the Moon is coming closer to the Earth at `epoch`, from the distance
+ * a minute later. Both are compared unrounded: next to an apsis the Moon moves
+ * by metres in a minute, far below the km rounding.
+ */
+function isApproaching(epoch) {
+  return distanceKm(epoch + 60) < distanceKm(epoch);
+}
+
+/**
  * Perigees and apogees between `fromEpoch` and `toEpoch`, in chronological
  * order: { perigee: bool, time: epochSeconds, distance: km }.
  *
@@ -410,7 +448,8 @@ function apsides(fromEpoch, toEpoch) {
       }
       var time = Math.round((a + b) / 120) * 60;
       if (time > fromEpoch && time <= toEpoch) {
-        out.push({ perigee: perigee, time: time, distance: distanceKm(time) });
+        // Rounded to the km like the watch, so both class it the same.
+        out.push({ perigee: perigee, time: time, distance: Math.round(distanceKm(time)) });
       }
     }
     t0 = t1; d0 = d1;
@@ -425,15 +464,15 @@ function apsides(fromEpoch, toEpoch) {
  * supermoon: bool, eclipse: eclipseAt() of a new or full moon, else null }.
  */
 function upcoming(nowEpoch, count) {
-  var jd = jdFromEpoch(nowEpoch);
   var kBase = Math.floor(kEstimate(nowEpoch)) - 1.0;
   var events = [];
   for (var k = kBase; events.length < count && k < kBase + 40.0; k += 1.0) {
     for (var q = 0; q < 4 && events.length < count; q++) {
       var kk = k + q * 0.25;
-      var t = phaseJD(kk);
-      if (t > jd) {
-        var time = epochFromJd(t);
+      // Compared once rounded to the second, as the caller sees it: asked from
+      // an event's own time, the search must not return that event.
+      var time = epochFromJd(phaseJD(kk));
+      if (time > nowEpoch) {
         // Rounded to the km like the watch, so both name the same supermoons.
         var distance = Math.round(distanceKm(time));
         events.push({
@@ -450,6 +489,8 @@ function upcoming(nowEpoch, count) {
 }
 
 module.exports = {
+  lunationFraction: lunationFraction,
+  isApproaching: isApproaching,
   upcoming: upcoming,
   apsides: apsides,
   nodes: nodes,

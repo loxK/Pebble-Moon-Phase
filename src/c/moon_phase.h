@@ -27,12 +27,73 @@ typedef enum {
   MOON_PHASE_LAST_QUARTER = 3,
 } MoonPhaseType;
 
+/**
+ * Eclipses, node passages and apsides, and the detail view they feed, need
+ * more memory than aplite has left.
+ */
+#if defined(PBL_PLATFORM_APLITE)
+#define MOON_HAS_DETAILS 0
+#else
+#define MOON_HAS_DETAILS 1
+#endif
+
+#if MOON_HAS_DETAILS
+/** Kind of an eclipse; the solar ones also come annular or hybrid. */
+typedef enum {
+  MOON_ECLIPSE_NONE = 0,
+  MOON_ECLIPSE_PENUMBRAL,
+  MOON_ECLIPSE_PARTIAL,
+  MOON_ECLIPSE_TOTAL,
+  MOON_ECLIPSE_ANNULAR,
+  MOON_ECLIPSE_HYBRID,
+} MoonEclipseType;
+
+/** An eclipse at a new moon (solar) or a full moon (lunar), Meeus ch. 54. */
+typedef struct {
+  MoonEclipseType type;  //!< MOON_ECLIPSE_NONE when there is none.
+  bool solar;
+  /**
+   * Umbral magnitude of a lunar eclipse, or the penumbral one for a penumbral
+   * eclipse; magnitude of a partial solar one; 0 otherwise.
+   */
+  float magnitude;
+  time_t time;           //!< UTC epoch of greatest eclipse.
+} MoonEclipse;
+
+/** A passage of the Moon through a node of its orbit (Meeus ch. 51). */
+typedef struct {
+  time_t time;
+  bool ascending;        //!< Northward across the plane of the Earth's orbit.
+} MoonNode;
+
+/** A perigee or apogee: the Moon at its closest or farthest. */
+typedef struct {
+  time_t time;
+  bool perigee;
+  int32_t distance_km;
+} MoonApsis;
+#endif
+
+#if MOON_HAS_DETAILS
+/**
+ * Whether the app names eclipse `e`: a total or partial lunar one. Solar
+ * eclipses depend on where they are seen from, and penumbral ones are hardly
+ * visible.
+ */
+static inline bool moon_eclipse_is_named(const MoonEclipse *e) {
+  return !e->solar && (e->type == MOON_ECLIPSE_TOTAL || e->type == MOON_ECLIPSE_PARTIAL);
+}
+#endif
+
 /** A single upcoming phase event. */
 typedef struct {
   MoonPhaseType type;
   time_t time;           //!< UTC epoch of the event.
   int32_t distance_km;   //!< Earth-Moon distance at that instant, centre to centre.
   bool approaching;      //!< Whether the Moon is coming closer at that instant.
+#if MOON_HAS_DETAILS
+  MoonEclipse eclipse;   //!< Of a new or full moon; type MOON_ECLIPSE_NONE otherwise.
+#endif
 } MoonPhaseEvent;
 
 /**
@@ -98,3 +159,41 @@ bool moon_is_approaching(time_t t);
  * @param count Number of upcoming events to compute.
  */
 void moon_phase_upcoming(time_t now, MoonPhaseEvent *events, int count);
+
+#if MOON_HAS_DETAILS
+/**
+ * How far the Moon is, from 0 (very close) to 4 (very far), relative to its
+ * orbit. "Very close" starts at the supermoon threshold and "very far" only
+ * covers the region of the apogees; the limits are those of
+ * src/pkjs/distance.js.
+ */
+int moon_distance_class(int32_t km);
+
+/**
+ * The first eclipse whose greatest phase comes after `from` and that `accept`
+ * takes, looking up to five years ahead.
+ *
+ * @return false, with `out` untouched, when there is none.
+ */
+bool moon_next_eclipse(time_t from, bool (*accept)(const MoonEclipse *eclipse),
+                       MoonEclipse *out);
+
+/**
+ * The Moon's passages through the nodes of its orbit strictly after `from` and
+ * up to `to`, in chronological order, at most `max` of them.
+ *
+ * @return How many were written to `out`.
+ */
+int moon_nodes(time_t from, time_t to, MoonNode *out, int max);
+
+/**
+ * The perigees and apogees strictly after `from` and up to `to`, in
+ * chronological order, at most `max` of them. The distance is sampled every
+ * six hours on a grid fixed to the epoch, and each turn is narrowed down by
+ * golden-section search and rounded to the minute, so any call finds the same
+ * turns at the same times.
+ *
+ * @return How many were written to `out`.
+ */
+int moon_apsides(time_t from, time_t to, MoonApsis *out, int max);
+#endif

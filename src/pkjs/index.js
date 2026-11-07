@@ -8,9 +8,9 @@
  *
  *  - Sends the hemisphere (from the phone GPS) to the watch, but only fetches a
  *    new GPS fix when the cached value is missing or stale, to save battery.
- *  - Pushes timeline pins for the upcoming phases, perigees and apogees, each
- *    only when it changed since it was last pushed, and deletes those an event
- *    left behind when its computed time moved.
+ *  - Pushes timeline pins for the upcoming phases, perigees and apogees on
+ *    every launch, and deletes those an event left behind when its computed
+ *    time moved.
  */
 
 var Moon = require('./moon_phase');
@@ -222,7 +222,7 @@ function pinTime(id) {
 
 /**
  * Ids of the pins listed in the signature that earlier versions stored instead
- * of fingerprints ("frN|2@1792988119,3@1793564989,...", then "|P@...,A@...").
+ * of pinsPushed ("frN|2@1792988119,3@1793564989,...", then "|P@...,A@...").
  * The signature goes once its ids are queued for deletion.
  */
 function legacyPinIds() {
@@ -285,21 +285,13 @@ function moonPin(id, time, title, body, iconName) {
   };
 }
 
-// Short fingerprint of a string (djb2), to tell whether a pin changed.
-function fingerprint(str) {
-  var h = 5381;
-  for (var i = 0; i < str.length; i++) {
-    h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
-  }
-  return h.toString(36);
-}
-
 /**
  * Push timeline pins for the upcoming phases, and for the perigees and apogees
- * falling among them. Each pin is pushed only when it differs from what was
- * last pushed under its id: its fingerprint covers everything it shows, so a
- * new language, hemisphere, time zone or wording pushes again exactly the pins
- * it changes, and a failed one is retried on its own next time.
+ * falling among them. Every pin is pushed each time: the phone app answers the
+ * timeline requests itself, with a 2xx even for a pin it later loses (an
+ * uninstall drops the pins but keeps localStorage), and it cannot list the
+ * pins it holds, so nothing here can tell which ones are still there. A pin
+ * pushed again under its id replaces the previous one.
  */
 function pushMoonPins() {
   var now = Math.floor(Date.now() / 1000);
@@ -325,25 +317,23 @@ function pushMoonPins() {
                    APSIS_ICON_NAME[kind]);
   }));
 
-  // Fingerprints of the pins as last pushed, by id. Pins that left the window
-  // drop out of it.
+  // Ids of the pins pushed so far, the keys of an object, for
+  // deleteSupersededPins. Pins that left the window drop out of it.
   var pushed = {};
   try { pushed = JSON.parse(lsGet('pinsPushed') || '{}'); } catch (e) { /* start over */ }
   var record = {};
   pins.forEach(function (pin) {
-    if (pushed[pin.id]) record[pin.id] = pushed[pin.id];
+    if (pushed[pin.id]) record[pin.id] = 1;
   });
   lsSet('pinsPushed', JSON.stringify(record));
 
   deleteSupersededPins(pins, Object.keys(pushed).concat(legacyPinIds()), now);
 
   pins.forEach(function (pin) {
-    var print = fingerprint(JSON.stringify(pin));
-    if (record[pin.id] === print) return;
     timeline.insertUserPin(pin, function (status) {
       log('pin ' + pin.id + ' -> ' + status);
       if (status >= 200 && status < 300) {
-        record[pin.id] = print;
+        record[pin.id] = 1;
         lsSet('pinsPushed', JSON.stringify(record));
       }
     });

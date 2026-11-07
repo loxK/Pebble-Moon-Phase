@@ -14,6 +14,7 @@
  */
 
 var Moon = require('./moon_phase');
+var Distance = require('./distance');
 var timeline = require('./timeline');
 
 // Re-check the hemisphere at most this often (it essentially never changes).
@@ -53,6 +54,18 @@ var APSIS_TITLES = {
   pt: ['Perigeu', 'Apogeu'],
   'zh-CN': ['近地点', '远地点'],
   'zh-TW': ['近地點', '遠地點'],
+};
+
+// Section headings of the pin detail view: [distance, next phase].
+var DETAIL_HEADINGS = {
+  en: ['Distance', 'Next phase'],
+  fr: ['Distance', 'Phase suivante'],
+  de: ['Entfernung', 'Nächste Phase'],
+  es: ['Distancia', 'Próxima fase'],
+  it: ['Distanza', 'Prossima fase'],
+  pt: ['Distância', 'Próxima fase'],
+  'zh-CN': ['距离', '下一月相'],
+  'zh-TW': ['距離', '下一月相'],
 };
 
 // Thousands separator for the distances.
@@ -268,24 +281,49 @@ function deleteSupersededPins(pins, earlierIds, now) {
 }
 
 /**
- * A timeline pin in the app's colours. The background is GColorOxfordBlue
+ * A timeline pin in the app's colours. `text` holds the layout's title,
+ * subtitle, body, headings and paragraphs. The background is GColorOxfordBlue
  * exactly: the phone app maps #RRGGBB onto the watch palette by flooring each
  * channel, so a colour off the palette can come out darker, down to black.
  */
-function moonPin(id, time, title, body, iconName) {
+function moonPin(id, time, text, iconName) {
   var iconUri = 'app://images/' + iconName;
   return {
     id: id,
     time: new Date(time * 1000).toISOString(),
     layout: {
       type: 'genericPin',
-      title: title,
-      body: body,
+      title: text.title,
+      subtitle: text.subtitle,
+      body: text.body,
+      headings: text.headings,
+      paragraphs: text.paragraphs,
       tinyIcon: iconUri,
       largeIcon: iconUri,
       backgroundColor: '#000055',
       primaryColor: '#FFFFFF',
     },
+  };
+}
+
+/** Title of a phase event: its phase name, or the supermoon one. */
+function phaseTitle(ev, lang) {
+  return ev.supermoon ? SUPERMOON_TITLES[lang] : PHASE_TITLES[lang][ev.type];
+}
+
+/**
+ * Subtitle, body and detail sections shared by every pin: how far the Moon is
+ * at `time` (in words in the list, with the km in the detail), its date, and
+ * the phase that comes after it.
+ */
+function pinText(title, time, distance, next, lang) {
+  var far = Distance.distanceLabel(distance, lang);
+  return {
+    title: title,
+    subtitle: far,
+    body: longDate(time),
+    headings: [DETAIL_HEADINGS[lang][0], DETAIL_HEADINGS[lang][1]],
+    paragraphs: [far + '\n' + formatKm(distance), phaseTitle(next, lang) + '\n' + longDate(next.time)],
   };
 }
 
@@ -299,25 +337,27 @@ function moonPin(id, time, title, body, iconName) {
  */
 function pushMoonPins() {
   var now = Math.floor(Date.now() / 1000);
-  var events = Moon.upcoming(now, 8);
+  // One phase beyond the pinned ones, to name the phase after the last pin.
+  var computed = Moon.upcoming(now, 9);
+  var events = computed.slice(0, 8);
   var apsides = Moon.apsides(now, events[events.length - 1].time);
   var lang = pickLang();
   var southern = lsGet('hemi') === '1';
 
-  var pins = events.map(function (ev) {
+  var pins = events.map(function (ev, i) {
     // Southern hemisphere mirrors the quarters: swap first/last quarter icons
     // (new and full are symmetric).
     var iconType = ev.type;
     if (southern && ev.type === 1) iconType = 3;
     else if (southern && ev.type === 3) iconType = 1;
-    // A supermoon owes its name to the distance, so the pin gives it.
-    var title = ev.supermoon ? SUPERMOON_TITLES[lang] : PHASE_TITLES[lang][ev.type];
-    var body = longDate(ev.time) + (ev.supermoon ? '\n' + formatKm(ev.distance) : '');
-    return moonPin('moon-' + ev.time, ev.time, title, body, PHASE_ICON_NAME[iconType]);
+    return moonPin('moon-' + ev.time, ev.time,
+                   pinText(phaseTitle(ev, lang), ev.time, ev.distance, computed[i + 1], lang),
+                   PHASE_ICON_NAME[iconType]);
   }).concat(apsides.map(function (a) {
     var kind = a.perigee ? 0 : 1;
+    var next = computed.filter(function (ev) { return ev.time > a.time; })[0];
     return moonPin('moon-' + (a.perigee ? 'perigee-' : 'apogee-') + a.time, a.time,
-                   APSIS_TITLES[lang][kind], longDate(a.time) + '\n' + formatKm(a.distance),
+                   pinText(APSIS_TITLES[lang][kind], a.time, a.distance, next, lang),
                    APSIS_ICON_NAME[kind]);
   }));
 

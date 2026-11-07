@@ -101,16 +101,16 @@ var NODE_DIRECTIONS = {
 };
 
 // Section headings of the pin detail view:
-// [distance, next phase, nearest phase, next eclipse].
+// [distance, next phase, nearest phase, next eclipse, next node].
 var DETAIL_HEADINGS = {
-  en: ['Distance', 'Next phase', 'Nearest phase', 'Next eclipse'],
-  fr: ['Distance', 'Phase suivante', 'Phase la plus proche', 'Prochaine éclipse'],
-  de: ['Entfernung', 'Nächste Phase', 'Nächstgelegene Phase', 'Nächste Finsternis'],
-  es: ['Distancia', 'Próxima fase', 'Fase más cercana', 'Próximo eclipse'],
-  it: ['Distanza', 'Prossima fase', 'Fase più vicina', 'Prossima eclissi'],
-  pt: ['Distância', 'Próxima fase', 'Fase mais próxima', 'Próximo eclipse'],
-  'zh-CN': ['距离', '下一月相', '最近的月相', '下次月食'],
-  'zh-TW': ['距離', '下一月相', '最近的月相', '下次月食'],
+  en: ['Distance', 'Next phase', 'Nearest phase', 'Next eclipse', 'Next node'],
+  fr: ['Distance', 'Phase suivante', 'Phase la plus proche', 'Prochaine éclipse', 'Prochain nœud'],
+  de: ['Entfernung', 'Nächste Phase', 'Nächstgelegene Phase', 'Nächste Finsternis', 'Nächster Knoten'],
+  es: ['Distancia', 'Próxima fase', 'Fase más cercana', 'Próximo eclipse', 'Próximo nodo'],
+  it: ['Distanza', 'Prossima fase', 'Fase più vicina', 'Prossima eclissi', 'Prossimo nodo'],
+  pt: ['Distância', 'Próxima fase', 'Fase mais próxima', 'Próximo eclipse', 'Próximo nodo'],
+  'zh-CN': ['距离', '下一月相', '最近的月相', '下次月食', '下一交点'],
+  'zh-TW': ['距離', '下一月相', '最近的月相', '下次月食', '下一交點'],
 };
 
 // Thousands separator for the distances, and what goes between a number and
@@ -419,10 +419,18 @@ function formatShadow(eclipse, lang) {
 
 /**
  * Layout text of a pin; `sections` is a list of [heading, paragraph]. Every
- * pin ends with the next eclipse after its time and the time of its greatest
- * phase, dated with the year since it can be more than a year ahead.
+ * pin ends with the next node passage after its time, unless `nodeListed`
+ * says the pin already names it, then with the next eclipse and the time of
+ * its greatest phase, dated with the year since it can be more than a year
+ * ahead.
  */
-function pinText(title, subtitle, time, sections, lang) {
+function pinText(title, subtitle, time, sections, lang, nodeListed) {
+  // A minute on, so a node pin, whose time is rounded, does not find itself.
+  var node = Moon.nodes(time + 60, time + 16 * 86400)[0];
+  if (node && !nodeListed) {
+    sections = sections.concat([[DETAIL_HEADINGS[lang][4],
+      nodeTitle(node, lang) + '\n' + longDate(node.time) + '\n' + clockTime(node.time)]]);
+  }
   var next = Moon.nextEclipse(time, isShownEclipse);
   if (next) {
     sections = sections.concat([[DETAIL_HEADINGS[lang][3],
@@ -461,8 +469,9 @@ function phaseText(ev, next, coming, lang) {
       : [nodeTitle(c, lang), longDate(c.time)]);
   });
   sections.push([DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]);
+  var nodeListed = coming.some(function (c) { return 'ascending' in c; });
   return pinText(phaseTitle(ev, lang), Distance.distanceLabel(ev.distance, lang), ev.time,
-                 sections, lang);
+                 sections, lang, nodeListed);
 }
 
 /**

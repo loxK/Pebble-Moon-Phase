@@ -56,16 +56,16 @@ var APSIS_TITLES = {
   'zh-TW': ['近地點', '遠地點'],
 };
 
-// Section headings of the pin detail view: [distance, next phase].
+// Section headings of the pin detail view: [distance, next phase, nearest phase].
 var DETAIL_HEADINGS = {
-  en: ['Distance', 'Next phase'],
-  fr: ['Distance', 'Phase suivante'],
-  de: ['Entfernung', 'Nächste Phase'],
-  es: ['Distancia', 'Próxima fase'],
-  it: ['Distanza', 'Prossima fase'],
-  pt: ['Distância', 'Próxima fase'],
-  'zh-CN': ['距离', '下一月相'],
-  'zh-TW': ['距離', '下一月相'],
+  en: ['Distance', 'Next phase', 'Nearest phase'],
+  fr: ['Distance', 'Phase suivante', 'Phase la plus proche'],
+  de: ['Entfernung', 'Nächste Phase', 'Nächstgelegene Phase'],
+  es: ['Distancia', 'Próxima fase', 'Fase más cercana'],
+  it: ['Distanza', 'Prossima fase', 'Fase più vicina'],
+  pt: ['Distância', 'Próxima fase', 'Fase mais próxima'],
+  'zh-CN': ['距离', '下一月相', '最近的月相'],
+  'zh-TW': ['距離', '下一月相', '最近的月相'],
 };
 
 // Thousands separator for the distances.
@@ -311,20 +311,58 @@ function phaseTitle(ev, lang) {
   return ev.supermoon ? SUPERMOON_TITLES[lang] : PHASE_TITLES[lang][ev.type];
 }
 
-/**
- * Subtitle, body and detail sections shared by every pin: how far the Moon is
- * at `time` (in words in the list, with the km in the detail), its date, and
- * the phase that comes after it.
- */
-function pinText(title, time, distance, next, lang) {
-  var far = Distance.distanceLabel(distance, lang);
+/** Title of a perigee or apogee. */
+function apsisTitle(a, lang) {
+  return APSIS_TITLES[lang][a.perigee ? 0 : 1];
+}
+
+/** Layout text of a pin; `sections` is a list of [heading, paragraph]. */
+function pinText(title, subtitle, time, sections) {
   return {
     title: title,
-    subtitle: far,
+    subtitle: subtitle,
     body: longDate(time),
-    headings: [DETAIL_HEADINGS[lang][0], DETAIL_HEADINGS[lang][1]],
-    paragraphs: [far + '\n' + formatKm(distance), phaseTitle(next, lang) + '\n' + longDate(next.time)],
+    headings: sections.map(function (s) { return s[0]; }),
+    paragraphs: sections.map(function (s) { return s[1]; }),
   };
+}
+
+/** Detail section giving the distance in words, then in km. */
+function distanceSection(km, lang) {
+  return [DETAIL_HEADINGS[lang][0], Distance.distanceLabel(km, lang) + '\n' + formatKm(km)];
+}
+
+/**
+ * Text of a phase pin. The list shows how far the Moon is in words; the detail
+ * adds the km, the perigee or apogee coming before the next phase, if any, and
+ * that next phase.
+ */
+function phaseText(ev, next, apsis, lang) {
+  var sections = [distanceSection(ev.distance, lang)];
+  if (apsis) {
+    sections.push([apsisTitle(apsis, lang), longDate(apsis.time) + '\n' + formatKm(apsis.distance)]);
+  }
+  sections.push([DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]);
+  return pinText(phaseTitle(ev, lang), Distance.distanceLabel(ev.distance, lang), ev.time, sections);
+}
+
+/**
+ * Text of a perigee or apogee pin. Its class in words says little (a perigee
+ * is always close, an apogee always far), so the list shows the km; the
+ * detail adds the phase nearest in time.
+ */
+function apsisText(a, nearest, lang) {
+  return pinText(apsisTitle(a, lang), formatKm(a.distance), a.time, [
+    distanceSection(a.distance, lang),
+    [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
+  ]);
+}
+
+/** The event of `events` closest in time to `time`. */
+function nearestInTime(events, time) {
+  return events.reduce(function (best, ev) {
+    return Math.abs(ev.time - time) < Math.abs(best.time - time) ? ev : best;
+  });
 }
 
 /**
@@ -337,10 +375,16 @@ function pinText(title, time, distance, next, lang) {
  */
 function pushMoonPins() {
   var now = Math.floor(Date.now() / 1000);
-  // One phase beyond the pinned ones, to name the phase after the last pin.
+  // One phase beyond the pinned ones, to name the phase after the last pin and
+  // find the apsis coming before it.
   var computed = Moon.upcoming(now, 9);
   var events = computed.slice(0, 8);
-  var apsides = Moon.apsides(now, events[events.length - 1].time);
+  var lastPinned = events[events.length - 1].time;
+  var allApsides = Moon.apsides(now, computed[computed.length - 1].time);
+  var apsides = allApsides.filter(function (a) { return a.time <= lastPinned; });
+  // The phases around the pinned apsides, past ones included, to find the
+  // nearest one of each.
+  var around = Moon.upcoming(now - 8 * 86400, 12);
   var lang = pickLang();
   var southern = lsGet('hemi') === '1';
 
@@ -350,15 +394,14 @@ function pushMoonPins() {
     var iconType = ev.type;
     if (southern && ev.type === 1) iconType = 3;
     else if (southern && ev.type === 3) iconType = 1;
-    return moonPin('moon-' + ev.time, ev.time,
-                   pinText(phaseTitle(ev, lang), ev.time, ev.distance, computed[i + 1], lang),
+    var next = computed[i + 1];
+    var apsis = allApsides.filter(function (a) { return a.time > ev.time && a.time < next.time; })[0];
+    return moonPin('moon-' + ev.time, ev.time, phaseText(ev, next, apsis, lang),
                    PHASE_ICON_NAME[iconType]);
   }).concat(apsides.map(function (a) {
-    var kind = a.perigee ? 0 : 1;
-    var next = computed.filter(function (ev) { return ev.time > a.time; })[0];
     return moonPin('moon-' + (a.perigee ? 'perigee-' : 'apogee-') + a.time, a.time,
-                   pinText(APSIS_TITLES[lang][kind], a.time, a.distance, next, lang),
-                   APSIS_ICON_NAME[kind]);
+                   apsisText(a, nearestInTime(around, a.time), lang),
+                   APSIS_ICON_NAME[a.perigee ? 0 : 1]);
   }));
 
   // Ids of the pins pushed so far, the keys of an object, for

@@ -15,6 +15,8 @@
 
 var Moon = require('./moon_phase');
 var Distance = require('./distance');
+var Store = require('./store');
+var Text = require('./moon_text');
 var timeline = require('./timeline');
 
 // Re-check the hemisphere at most this often (it essentially never changes).
@@ -25,104 +27,11 @@ var HEMI_TTL = 7 * 24 * 60 * 60 * 1000;
 var DEBUG = false;
 function log(msg) { if (DEBUG) { console.log(msg); } }
 
-// Localized phase titles (sent already translated so the timeline service does
-// not substitute its own wording), in the language of the watch (pickLang).
-var PHASE_TITLES = {
-  en: ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter'],
-  fr: ['Nouvelle lune', 'Premier quartier', 'Pleine lune', 'Dernier quartier'],
-  de: ['Neumond', 'Erstes Viertel', 'Vollmond', 'Letztes Viertel'],
-  es: ['Luna nueva', 'Cuarto creciente', 'Luna llena', 'Cuarto menguante'],
-  it: ['Luna nuova', 'Primo quarto', 'Luna piena', 'Ultimo quarto'],
-  pt: ['Lua nova', 'Quarto crescente', 'Lua cheia', 'Quarto minguante'],
-  'zh-CN': ['新月', '上弦月', '满月', '下弦月'],
-  'zh-TW': ['新月', '上弦月', '滿月', '下弦月'],
-};
-
-// A full moon close to the Earth takes this title instead of "Full Moon".
-var SUPERMOON_TITLES = {
-  en: 'Supermoon', fr: 'Super lune', de: 'Supermond', es: 'Superluna',
-  it: 'Superluna', pt: 'Superlua', 'zh-CN': '超级月亮', 'zh-TW': '超級月亮',
-};
-
-// Closest and farthest points of the Moon's orbit: [perigee, apogee].
-var APSIS_TITLES = {
-  en: ['Perigee', 'Apogee'],
-  fr: ['Périgée', 'Apogée'],
-  de: ['Perigäum', 'Apogäum'],
-  es: ['Perigeo', 'Apogeo'],
-  it: ['Perigeo', 'Apogeo'],
-  pt: ['Perigeu', 'Apogeu'],
-  'zh-CN': ['近地点', '远地点'],
-  'zh-TW': ['近地點', '遠地點'],
-};
-
-// A full moon in the Earth's shadow takes this title: [total, partial]. The
-// app only shows lunar eclipses, so "lunar" is left out.
-var ECLIPSE_TITLES = {
-  en: ['Total eclipse', 'Partial eclipse'],
-  fr: ['Éclipse totale', 'Éclipse partielle'],
-  de: ['Totale Finsternis', 'Partielle Finsternis'],
-  es: ['Eclipse total', 'Eclipse parcial'],
-  it: ['Eclissi totale', 'Eclissi parziale'],
-  pt: ['Eclipse total', 'Eclipse parcial'],
-  'zh-CN': ['月全食', '月偏食'],
-  'zh-TW': ['月全食', '月偏食'],
-};
-
 // Heading of the share of the Moon's diameter in the Earth's shadow, in the
 // pin detail view of an eclipse.
 var SHADOW_HEADINGS = {
   en: 'In the shadow', fr: 'Dans l’ombre', de: 'Im Schatten', es: 'En la sombra',
   it: 'In ombra', pt: 'Na sombra', 'zh-CN': '食分', 'zh-TW': '食分',
-};
-
-// Where the Moon crosses the plane of the Earth's orbit: [ascending, descending].
-var NODE_TITLES = {
-  en: ['Ascending node', 'Descending node'],
-  fr: ['Nœud ascendant', 'Nœud descendant'],
-  de: ['Aufsteigender Knoten', 'Absteigender Knoten'],
-  es: ['Nodo ascendente', 'Nodo descendente'],
-  it: ['Nodo ascendente', 'Nodo discendente'],
-  pt: ['Nodo ascendente', 'Nodo descendente'],
-  'zh-CN': ['升交点', '降交点'],
-  'zh-TW': ['升交點', '降交點'],
-};
-
-// Which way the Moon crosses it, shown under a node pin's title.
-var NODE_DIRECTIONS = {
-  en: ['Heading north', 'Heading south'],
-  fr: ['Vers le nord', 'Vers le sud'],
-  de: ['Nach Norden', 'Nach Süden'],
-  es: ['Hacia el norte', 'Hacia el sur'],
-  it: ['Verso nord', 'Verso sud'],
-  pt: ['Rumo ao norte', 'Rumo ao sul'],
-  'zh-CN': ['向北', '向南'],
-  'zh-TW': ['向北', '向南'],
-};
-
-// Whether the Moon passes higher or lower each day, then the turn that ends
-// it: [ascending, descending, highest, lowest].
-var SKY_WORDS = {
-  en: ['Ascending', 'Descending', 'Highest', 'Lowest'],
-  fr: ['Montante', 'Descendante', 'Au plus haut', 'Au plus bas'],
-  de: ['Aufsteigend', 'Absteigend', 'Höchststand', 'Tiefststand'],
-  es: ['Ascendente', 'Descendente', 'Más alta', 'Más baja'],
-  it: ['Ascendente', 'Discendente', 'Più alta', 'Più bassa'],
-  pt: ['Ascendente', 'Descendente', 'Mais alta', 'Mais baixa'],
-  'zh-CN': ['渐升', '渐降', '最高', '最低'],
-  'zh-TW': ['漸升', '漸降', '最高', '最低'],
-};
-
-// Whether the lit part of the Moon grows or shrinks: [waxing, waning].
-var LIGHT_WORDS = {
-  en: ['Waxing', 'Waning'],
-  fr: ['Croissante', 'Décroissante'],
-  de: ['Zunehmend', 'Abnehmend'],
-  es: ['Creciente', 'Menguante'],
-  it: ['Crescente', 'Calante'],
-  pt: ['Crescente', 'Minguante'],
-  'zh-CN': ['渐盈', '渐亏'],
-  'zh-TW': ['漸盈', '漸虧'],
 };
 
 // Headings of the next perigee and apogee in the pin detail view.
@@ -150,151 +59,10 @@ var DETAIL_HEADINGS = {
   'zh-TW': ['距離', '下一月相', '最近的月相', '下次月食', '下一交點'],
 };
 
-// Thousands separator for the distances, and what goes between a number and
-// its percent sign.
-var THOUSANDS = { en: ',', fr: '\u00a0', de: '.', es: '.', it: '.', pt: '.', 'zh-CN': ',', 'zh-TW': ',' };
-var PERCENT_SPACE = { en: '', fr: '\u00a0', de: '\u00a0', es: '\u00a0', it: '', pt: '', 'zh-CN': '', 'zh-TW': '' };
-
 // publishedMedia names declared in package.json (referenced as app://images/NAME).
 var PHASE_ICON_NAME = ['MOON_NEW', 'MOON_FIRST', 'MOON_FULL', 'MOON_LAST'];
 var APSIS_ICON_NAME = ['MOON_PERIGEE', 'MOON_APOGEE'];
 var NODE_ICON_NAME = ['MOON_NODE_ASC', 'MOON_NODE_DESC'];
-
-// Safe localStorage access: if it is unavailable, the app simply degrades to
-// always fetching/pushing (the pre-optimization behavior) instead of crashing.
-function lsGet(k) {
-  try { return localStorage.getItem(k); } catch (e) { return null; }
-}
-function lsSet(k, v) {
-  try { localStorage.setItem(k, v); } catch (e) { /* no-op */ }
-}
-function lsRemove(k) {
-  try { localStorage.removeItem(k); } catch (e) { /* no-op */ }
-}
-
-/**
- * Language of a watch locale ("fr_FR", "zh_TW"), by the rules of i18n_lang()
- * on the watch: the Chinese language packs also come as en_CN and en_TW.
- */
-function langFromWatch(locale) {
-  if (locale.indexOf('zh') === 0) {
-    return /TW|HK/.test(locale) ? 'zh-TW' : 'zh-CN';
-  }
-  if (/TW|HK/.test(locale)) return 'zh-TW';
-  if (/CN/.test(locale)) return 'zh-CN';
-  var p = locale.slice(0, 2).toLowerCase();
-  return PHASE_TITLES[p] ? p : 'en';
-}
-
-/**
- * Language of a phone locale ("fr-FR", "zh-Hant-HK", "en_HK"), from its
- * language subtag: a phone's region says where it is, not what its owner
- * reads.
- */
-function langFromPhone(tag) {
-  var parts = tag.toLowerCase().split(/[-_]/);
-  if (parts[0] === 'zh') {
-    var traditional = parts.some(function (p) {
-      return p === 'hant' || p === 'tw' || p === 'hk' || p === 'mo';
-    });
-    return traditional ? 'zh-TW' : 'zh-CN';
-  }
-  return PHASE_TITLES[parts[0]] ? parts[0] : 'en';
-}
-
-/**
- * Language of the pins: the watch's, so they read like the app, falling back
- * to the phone's when the watch does not say.
- */
-function pickLang() {
-  var info = null;
-  try {
-    info = Pebble.getActiveWatchInfo ? Pebble.getActiveWatchInfo() : null;
-  } catch (e) { /* not connected */ }
-  if (info && info.language) return langFromWatch(info.language);
-  return langFromPhone(navigator.language || 'en');
-}
-
-// Localized weekday / month names (long form), keyed like PHASE_TITLES and
-// mirroring the C-side i18n so pin dates read exactly like the watch screen.
-// Dates are formatted by hand rather than with toLocaleDateString: not every
-// engine PebbleKit JS runs on ships Intl (the emulator's pypkjs has none and
-// ignores the locale), and these tables give the same output on all of them.
-var WEEKDAYS = {
-  en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
-  fr: ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'],
-  de: ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'],
-  es: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
-  it: ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'],
-  pt: ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'],
-  'zh-CN': ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
-  'zh-TW': ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'],
-};
-var MONTHS = {
-  en: ['January', 'February', 'March', 'April', 'May', 'June',
-       'July', 'August', 'September', 'October', 'November', 'December'],
-  fr: ['janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-       'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'],
-  de: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-       'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'],
-  es: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-       'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
-  it: ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
-       'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'],
-  pt: ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-       'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'],
-};
-
-// Full localized date with weekday, e.g. "mardi 28 juin", or "mardi 28 juin
-// 2028" with `withYear`, in the phone's local timezone. Shown in the pin
-// detail view. Layout follows the same per-locale convention as the C
-// DateStyle.
-function longDate(epoch, withYear) {
-  var d = new Date(epoch * 1000);
-  var lang = pickLang();
-  var wd = WEEKDAYS[lang][d.getDay()];
-  var day = d.getDate();
-  var mon = d.getMonth();  // 0-11
-  var y = d.getFullYear();
-  switch (lang) {
-    case 'en':    return wd + ', ' + MONTHS.en[mon] + ' ' + day + (withYear ? ', ' + y : '');
-    case 'de':    return wd + ', ' + day + '. ' + MONTHS.de[mon] + (withYear ? ' ' + y : '');
-    case 'es':    return wd + ', ' + day + ' de ' + MONTHS.es[mon] + (withYear ? ' de ' + y : '');
-    case 'pt':    return wd + ', ' + day + ' de ' + MONTHS.pt[mon] + (withYear ? ' de ' + y : '');
-    case 'zh-CN':
-    case 'zh-TW': return (withYear ? y + '年' : '') + (mon + 1) + '月' + day + '日 ' + wd;
-    case 'fr':
-    case 'it':
-    default:      return wd + ' ' + day + ' ' + MONTHS[lang][mon] + (withYear ? ' ' + y : '');
-  }
-}
-
-/**
- * Whether the watch shows the time on a 24-hour clock, as it last said (see
- * the appmessage listener). Until it has, English reads 12-hour and the other
- * languages 24-hour.
- */
-function clock24h() {
-  var stored = lsGet('clock24h');
-  return stored !== null ? stored === '1' : pickLang() !== 'en';
-}
-
-// Time of day in the phone's local timezone, "09:07" or "9:07 PM" by the
-// watch's clock style.
-function clockTime(epoch) {
-  var d = new Date(epoch * 1000);
-  var min = (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
-  if (clock24h()) return (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + min;
-  var h = d.getHours() % 12 || 12;
-  return h + ':' + min + (d.getHours() < 12 ? '\u00a0AM' : '\u00a0PM');
-}
-
-// Distance rounded to the km with the language's grouping, e.g. "356 979 km";
-// the unit stays on the line of the number.
-function formatKm(km) {
-  var digits = '' + Math.round(km);
-  return digits.replace(/\B(?=(\d{3})+$)/g, THOUSANDS[pickLang()]) + '\u00a0km';
-}
 
 function sendHemisphere(southern) {
   Pebble.sendAppMessage({ Hemisphere: southern ? 1 : 0 },
@@ -307,8 +75,8 @@ function sendHemisphere(southern) {
  * it is still fresh; only powers up geolocation on first run or after HEMI_TTL.
  */
 function updateHemisphere() {
-  var cached = lsGet('hemi');
-  var ts = parseInt(lsGet('hemiTime') || '0', 10);
+  var cached = Store.lsGet('hemi');
+  var ts = parseInt(Store.lsGet('hemiTime') || '0', 10);
 
   if (cached !== null && (Date.now() - ts) < HEMI_TTL) {
     sendHemisphere(cached === '1');  // known & fresh -> no GPS
@@ -321,8 +89,8 @@ function updateHemisphere() {
   navigator.geolocation.getCurrentPosition(
     function (pos) {
       var southern = pos.coords.latitude < 0;
-      lsSet('hemi', southern ? '1' : '0');
-      lsSet('hemiTime', '' + Date.now());
+      Store.lsSet('hemi', southern ? '1' : '0');
+      Store.lsSet('hemiTime', '' + Date.now());
       sendHemisphere(southern);
       // The pins went out with the hemisphere known before this fix; the
       // quarters swap their icons if it changed.
@@ -346,7 +114,7 @@ function pinTime(id) {
  * The signature goes once its ids are queued for deletion.
  */
 function legacyPinIds() {
-  var sig = lsGet('pinSig');
+  var sig = Store.lsGet('pinSig');
   if (!sig) return [];
   var ids = [];
   var re = /([0-3PA])S?@(\d+)/g;
@@ -369,19 +137,19 @@ function deleteSupersededPins(pins, earlierIds, now) {
   pins.forEach(function (pin) { current[pin.id] = true; });
 
   var queue = [];
-  try { queue = JSON.parse(lsGet('pinsToDelete') || '[]'); } catch (e) { /* start over */ }
+  try { queue = JSON.parse(Store.lsGet('pinsToDelete') || '[]'); } catch (e) { /* start over */ }
   earlierIds.forEach(function (id) {
     if (!current[id] && pinTime(id) > now && queue.indexOf(id) < 0) queue.push(id);
   });
-  lsSet('pinsToDelete', JSON.stringify(queue));
-  lsRemove('pinSig');
+  Store.lsSet('pinsToDelete', JSON.stringify(queue));
+  Store.lsRemove('pinSig');
 
   queue.slice().forEach(function (id) {
     timeline.deleteUserPin({ id: id }, function (status) {
       log('delete ' + id + ' -> ' + status);
       if ((status >= 200 && status < 300) || status === 404 || status === 410) {
         queue.splice(queue.indexOf(id), 1);
-        lsSet('pinsToDelete', JSON.stringify(queue));
+        Store.lsSet('pinsToDelete', JSON.stringify(queue));
       }
     });
   });
@@ -414,66 +182,6 @@ function moonPin(id, time, text, iconName) {
 }
 
 /**
- * Whether the app shows an eclipse: a total or partial lunar one. Solar
- * eclipses depend on where they are seen from, and penumbral ones are hardly
- * visible.
- */
-function isShownEclipse(e) {
-  return !e.solar && (e.type === 'total' || e.type === 'partial');
-}
-
-/** The eclipse of a phase event, if the app shows it. */
-function lunarEclipse(ev) {
-  return ev.eclipse && isShownEclipse(ev.eclipse) ? ev.eclipse : null;
-}
-
-/** Title of a phase event: the eclipse, the supermoon or its phase name. */
-function phaseTitle(ev, lang) {
-  var eclipse = lunarEclipse(ev);
-  if (eclipse) return ECLIPSE_TITLES[lang][eclipse.type === 'total' ? 0 : 1];
-  return ev.supermoon ? SUPERMOON_TITLES[lang] : PHASE_TITLES[lang][ev.type];
-}
-
-/** Title of a perigee or apogee. */
-function apsisTitle(a, lang) {
-  return APSIS_TITLES[lang][a.perigee ? 0 : 1];
-}
-
-/** Title of a passage through a node. */
-function nodeTitle(n, lang) {
-  return NODE_TITLES[lang][n.ascending ? 0 : 1];
-}
-
-/**
- * Share of the Moon's diameter in the Earth's shadow, as a percentage: 100 for
- * a total eclipse, whose umbral magnitude goes past 1 when the shadow is wider
- * than the Moon, and at most 99 for a partial one.
- */
-function formatShadow(eclipse, lang) {
-  var percent = eclipse.type === 'total' ? 100 : Math.min(99, Math.round(eclipse.magnitude * 100));
-  return percent + PERCENT_SPACE[lang] + '%';
-}
-
-/**
- * Whether the Moon passes higher or lower each day at `time`, seen from the
- * hemisphere of the phone, and the next turn that ends it: { ascending, turn },
- * `turn` undefined if none comes within half a month and a bit.
- */
-function skyAt(time) {
-  var southern = lsGet('hemi') === '1';
-  var turn = Moon.declinationTurns(time + 60, time + 16 * 86400)[0];
-  return {
-    ascending: Moon.isDeclinationNorthing(time) !== southern,
-    turn: turn && { highest: turn.northern !== southern, time: turn.time },
-  };
-}
-
-/** `text` with its first letter in lower case, to follow another word. */
-function lowerFirst(text) {
-  return text.charAt(0).toLowerCase() + text.slice(1);
-}
-
-/**
  * Text of a pin. Its detail starts with `lead`, the phase it relates to, then
  * follows the cards of the watch app: the distance `km` in words and in km,
  * the next apogee and perigee, whether the Moon passes higher or lower each
@@ -485,29 +193,31 @@ function pinText(title, subtitle, time, km, lead, lang) {
   var sections = lead.concat([distanceSection(km, lang)]);
   Moon.apsides(time + 60, time + 32 * 86400).slice(0, 2).forEach(function (a) {
     sections.push([NEXT_APSIS_HEADINGS[lang][a.perigee ? 0 : 1],
-      longDate(a.time) + '\n' + clockTime(a.time) + '\n' + formatKm(a.distance)]);
+      Text.longDate(a.time) + '\n' + Text.clockTime(a.time) + '\n' + Text.formatKm(a.distance)]);
   });
-  var sky = skyAt(time);
+  var sky = Text.skyAt(time);
   if (sky.turn) {
-    sections.push([SKY_WORDS[lang][sky.ascending ? 0 : 1],
-      SKY_WORDS[lang][sky.turn.highest ? 2 : 3] + '\n' + longDate(sky.turn.time) + '\n'
-        + clockTime(sky.turn.time)]);
+    sections.push([Text.SKY_WORDS[lang][sky.ascending ? 0 : 1],
+      Text.SKY_WORDS[lang][sky.turn.highest ? 2 : 3] + '\n' + Text.longDate(sky.turn.time) + '\n'
+        + Text.clockTime(sky.turn.time)]);
   }
   var node = Moon.nodes(time + 60, time + 16 * 86400)[0];
   if (node) {
     sections.push([DETAIL_HEADINGS[lang][4],
-      nodeTitle(node, lang) + '\n' + longDate(node.time) + '\n' + clockTime(node.time)]);
+      Text.nodeTitle(node, lang) + '\n' + Text.longDate(node.time) + '\n'
+        + Text.clockTime(node.time)]);
   }
-  var next = Moon.nextEclipse(time, isShownEclipse);
+  var next = Moon.nextEclipse(time, Text.isShownEclipse);
   if (next) {
     sections.push([DETAIL_HEADINGS[lang][3],
-      ECLIPSE_TITLES[lang][next.type === 'total' ? 0 : 1] + ' (' + formatShadow(next, lang) + ')\n'
-        + longDate(next.time, true) + '\n' + clockTime(next.time)]);
+      Text.ECLIPSE_TITLES[lang][next.type === 'total' ? 0 : 1]
+        + ' (' + Text.formatShadow(next, lang) + ')\n'
+        + Text.longDate(next.time, true) + '\n' + Text.clockTime(next.time)]);
   }
   return {
     title: title,
     subtitle: subtitle,
-    body: longDate(time),
+    body: Text.longDate(time),
     headings: sections.map(function (s) { return s[0]; }),
     paragraphs: sections.map(function (s) { return s[1]; }),
   };
@@ -515,7 +225,7 @@ function pinText(title, subtitle, time, km, lead, lang) {
 
 /** Detail section giving the distance in words, then in km. */
 function distanceSection(km, lang) {
-  return [DETAIL_HEADINGS[lang][0], Distance.distanceLabel(km, lang) + '\n' + formatKm(km)];
+  return [DETAIL_HEADINGS[lang][0], Distance.distanceLabel(km, lang) + '\n' + Text.formatKm(km)];
 }
 
 /**
@@ -525,16 +235,17 @@ function distanceSection(km, lang) {
  * with the next phase and how much of the Moon its eclipse covers, if any.
  */
 function phaseText(ev, next, lang) {
-  var eclipse = lunarEclipse(ev);
+  var eclipse = Text.lunarEclipse(ev);
   // An eclipsed full moon is dated at its greatest eclipse, which can come
   // after the phase: what follows is looked for from there, not to find this
   // eclipse again.
   var time = eclipse ? eclipse.time : ev.time;
-  var lead = [[DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]];
-  if (eclipse) lead.push([SHADOW_HEADINGS[lang], formatShadow(eclipse, lang)]);
-  var subtitle = LIGHT_WORDS[lang][Moon.lunationFraction(ev.time + 60) < 0.5 ? 0 : 1] + ' & '
-    + lowerFirst(SKY_WORDS[lang][skyAt(time + 60).ascending ? 0 : 1]);
-  return pinText(phaseTitle(ev, lang), subtitle, time, ev.distance, lead, lang);
+  var lead = [[DETAIL_HEADINGS[lang][1],
+    Text.phaseTitle(next, lang) + '\n' + Text.longDate(next.time)]];
+  if (eclipse) lead.push([SHADOW_HEADINGS[lang], Text.formatShadow(eclipse, lang)]);
+  var subtitle = Text.LIGHT_WORDS[lang][Moon.lunationFraction(ev.time + 60) < 0.5 ? 0 : 1] + ' & '
+    + Text.lowerFirst(Text.SKY_WORDS[lang][Text.skyAt(time + 60).ascending ? 0 : 1]);
+  return pinText(Text.phaseTitle(ev, lang), subtitle, time, ev.distance, lead, lang);
 }
 
 /**
@@ -543,8 +254,8 @@ function phaseText(ev, next, lang) {
  * detail starts with the phase nearest in time.
  */
 function apsisText(a, nearest, lang) {
-  return pinText(apsisTitle(a, lang), formatKm(a.distance), a.time, a.distance, [
-    [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
+  return pinText(Text.apsisTitle(a, lang), Text.formatKm(a.distance), a.time, a.distance, [
+    [DETAIL_HEADINGS[lang][2], Text.phaseTitle(nearest, lang) + '\n' + Text.longDate(nearest.time)],
   ], lang);
 }
 
@@ -554,9 +265,9 @@ function apsisText(a, nearest, lang) {
  * when there is one.
  */
 function nodeText(n, nearest, lang) {
-  return pinText(nodeTitle(n, lang), NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time,
+  return pinText(Text.nodeTitle(n, lang), Text.NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time,
                  Math.round(Moon.distanceKm(n.time)), [
-    [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
+    [DETAIL_HEADINGS[lang][2], Text.phaseTitle(nearest, lang) + '\n' + Text.longDate(nearest.time)],
   ], lang);
 }
 
@@ -589,8 +300,8 @@ function pushMoonPins() {
   // The phases around the pinned events, past ones included, to find the
   // nearest one of each.
   var around = Moon.upcoming(now - 8 * 86400, 12);
-  var lang = pickLang();
-  var southern = lsGet('hemi') === '1';
+  var lang = Text.pickLang();
+  var southern = Store.lsGet('hemi') === '1';
 
   var pins = events.map(function (ev, i) {
     // Southern hemisphere mirrors the quarters: swap first/last quarter icons
@@ -601,7 +312,7 @@ function pushMoonPins() {
     var next = computed[i + 1];
     // An eclipsed full moon is pinned at its greatest eclipse, under the id of
     // its phase so the pin replaces the plain one.
-    var eclipse = lunarEclipse(ev);
+    var eclipse = Text.lunarEclipse(ev);
     return moonPin('moon-' + ev.time, eclipse ? eclipse.time : ev.time,
                    phaseText(ev, next, lang), PHASE_ICON_NAME[iconType]);
   }).concat(others.filter(function (o) { return o.time <= lastPinned; }).map(function (o) {
@@ -617,12 +328,12 @@ function pushMoonPins() {
   // Ids of the pins pushed so far, the keys of an object, for
   // deleteSupersededPins. Pins that left the window drop out of it.
   var pushed = {};
-  try { pushed = JSON.parse(lsGet('pinsPushed') || '{}'); } catch (e) { /* start over */ }
+  try { pushed = JSON.parse(Store.lsGet('pinsPushed') || '{}'); } catch (e) { /* start over */ }
   var record = {};
   pins.forEach(function (pin) {
     if (pushed[pin.id]) record[pin.id] = 1;
   });
-  lsSet('pinsPushed', JSON.stringify(record));
+  Store.lsSet('pinsPushed', JSON.stringify(record));
 
   deleteSupersededPins(pins, Object.keys(pushed).concat(legacyPinIds()), now);
 
@@ -631,7 +342,7 @@ function pushMoonPins() {
       log('pin ' + pin.id + ' -> ' + status);
       if (status >= 200 && status < 300) {
         record[pin.id] = 1;
-        lsSet('pinsPushed', JSON.stringify(record));
+        Store.lsSet('pinsPushed', JSON.stringify(record));
       }
     });
   });
@@ -648,7 +359,7 @@ Pebble.addEventListener('ready', function () {
 Pebble.addEventListener('appmessage', function (e) {
   if (e.payload.Clock24h === undefined) return;
   var value = e.payload.Clock24h ? '1' : '0';
-  if (lsGet('clock24h') === value) return;
-  lsSet('clock24h', value);
+  if (Store.lsGet('clock24h') === value) return;
+  Store.lsSet('clock24h', value);
   pushMoonPins();
 });

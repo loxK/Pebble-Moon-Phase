@@ -12,7 +12,9 @@
  *   apsis <time> <perigee> <km>
  *   next <from> <time> <eclipse type> <magnitude>
  *   follow <time> <time of the phase found from it>
+ *   turn <time> <northern> <declination>
  *   state <time> <position in the lunation> <approaching> <km>
+ *   position <time> <longitude> <latitude> <right ascension> <declination> <northing>
  *
  * Usage: engine_dump <from> <to>
  */
@@ -69,10 +71,20 @@ int main(int argc, char **argv) {
            (long)apsides[i].distance_km);
   }
 
+  static MoonDeclinationTurn turns[MAX_EVENTS];
+  int d = moon_declination_turns(from, to, turns, MAX_EVENTS);
+  for (int i = 0; i < d; i++) {
+    printf("turn %lld %d %.4f\n", (long long)turns[i].time, turns[i].northern,
+           turns[i].declination);
+  }
+
   // The Moon once a day.
   for (time_t t = from; t <= to; t += 86400) {
     printf("state %lld %.7f %d %ld\n", (long long)t, moon_phase_state(t).fraction,
            moon_is_approaching(t), (long)moon_distance_km(t));
+    MoonPosition p = moon_position(t);
+    printf("position %lld %.6f %.6f %.6f %.6f %d\n", (long long)t, p.longitude, p.latitude,
+           p.right_ascension, p.declination, moon_is_declination_northing(t));
   }
 
   // The next lunar eclipse seen from every 30 days of the range.

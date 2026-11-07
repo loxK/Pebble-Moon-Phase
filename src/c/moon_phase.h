@@ -196,4 +196,46 @@ int moon_nodes(time_t from, time_t to, MoonNode *out, int max);
  * @return How many were written to `out`.
  */
 int moon_apsides(time_t from, time_t to, MoonApsis *out, int max);
+
+/** Apparent geocentric position of the Moon, in degrees. */
+typedef struct {
+  double longitude;        //!< Ecliptic longitude, with the nutation, in [0, 360).
+  double latitude;         //!< Ecliptic latitude.
+  double right_ascension;  //!< In [0, 360).
+  double declination;      //!< North positive.
+} MoonPosition;
+
+/**
+ * The Moon's position at the given UTC time (Meeus ch. 47 and the short
+ * nutation series of ch. 22), good to about 10" in longitude and 4" in
+ * latitude.
+ */
+MoonPosition moon_position(time_t t);
+
+/**
+ * A turn of the Moon's declination. At a northern turn the Moon is as far north
+ * as it goes this month: at its highest seen from the northern hemisphere, its
+ * lowest from the southern one. A southern turn is the other way round.
+ */
+typedef struct {
+  time_t time;
+  bool northern;
+  float declination;       //!< Degrees, north positive.
+} MoonDeclinationTurn;
+
+/**
+ * The turns of the declination strictly after `from` and up to `to`, in
+ * chronological order, at most `max` of them, found as moon_apsides() finds
+ * its turns.
+ *
+ * @return How many were written to `out`.
+ */
+int moon_declination_turns(time_t from, time_t to, MoonDeclinationTurn *out, int max);
+
+/**
+ * Whether the declination grows northward at the given UTC time. Seen from the
+ * northern hemisphere the Moon then passes higher each day; seen from the
+ * southern one, lower.
+ */
+bool moon_is_declination_northing(time_t t);
 #endif

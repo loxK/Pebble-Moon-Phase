@@ -380,6 +380,116 @@ var DISTANCE_TERMS = [
   [2, 0, -1, -2, 8752],
 ];
 
+// Longitude terms of Meeus table 47.A: [D, M, M', F, coefficient in 1e-6
+// degree]. Rows whose longitude term is zero are left out.
+var LONGITUDE_TERMS = [
+  [0, 0, 1, 0, 6288774], [2, 0, -1, 0, 1274027], [2, 0, 0, 0, 658314],
+  [0, 0, 2, 0, 213618], [0, 1, 0, 0, -185116], [0, 0, 0, 2, -114332],
+  [2, 0, -2, 0, 58793], [2, -1, -1, 0, 57066], [2, 0, 1, 0, 53322],
+  [2, -1, 0, 0, 45758], [0, 1, -1, 0, -40923], [1, 0, 0, 0, -34720],
+  [0, 1, 1, 0, -30383], [2, 0, 0, -2, 15327], [0, 0, 1, 2, -12528],
+  [0, 0, 1, -2, 10980], [4, 0, -1, 0, 10675], [0, 0, 3, 0, 10034],
+  [4, 0, -2, 0, 8548], [2, 1, -1, 0, -7888], [2, 1, 0, 0, -6766],
+  [1, 0, -1, 0, -5163], [1, 1, 0, 0, 4987], [2, -1, 1, 0, 4036],
+  [2, 0, 2, 0, 3994], [4, 0, 0, 0, 3861], [2, 0, -3, 0, 3665],
+  [0, 1, -2, 0, -2689], [2, 0, -1, 2, -2602], [2, -1, -2, 0, 2390],
+  [1, 0, 1, 0, -2348], [2, -2, 0, 0, 2236], [0, 1, 2, 0, -2120],
+  [0, 2, 0, 0, -2069], [2, -2, -1, 0, 2048], [2, 0, 1, -2, -1773],
+  [2, 0, 0, 2, -1595], [4, -1, -1, 0, 1215], [0, 0, 2, 2, -1110],
+  [3, 0, -1, 0, -892], [2, 1, 1, 0, -810], [4, -1, -2, 0, 759],
+  [0, 2, -1, 0, -713], [2, 2, -1, 0, -700], [2, 1, -2, 0, 691],
+  [2, -1, 0, -2, 596], [4, 0, 1, 0, 549], [0, 0, 4, 0, 537],
+  [4, -1, 0, 0, 520], [1, 0, -2, 0, -487], [2, 1, 0, -2, -399],
+  [0, 0, 2, -2, -381], [1, 1, 1, 0, 351], [3, 0, -2, 0, -340],
+  [4, 0, -3, 0, 330], [2, -1, 2, 0, 327], [0, 2, 1, 0, -323],
+  [1, 1, -1, 0, 299], [2, 0, 3, 0, 294],
+];
+
+// Latitude terms of Meeus table 47.B: [D, M, M', F, coefficient in 1e-6 degree].
+var LATITUDE_TERMS = [
+  [0, 0, 0, 1, 5128122], [0, 0, 1, 1, 280602], [0, 0, 1, -1, 277693],
+  [2, 0, 0, -1, 173237], [2, 0, -1, 1, 55413], [2, 0, -1, -1, 46271],
+  [2, 0, 0, 1, 32573], [0, 0, 2, 1, 17198], [2, 0, 1, -1, 9266],
+  [0, 0, 2, -1, 8822], [2, -1, 0, -1, 8216], [2, 0, -2, -1, 4324],
+  [2, 0, 1, 1, 4200], [2, 1, 0, -1, -3359], [2, -1, -1, 1, 2463],
+  [2, -1, 0, 1, 2211], [2, -1, -1, -1, 2065], [0, 1, -1, -1, -1870],
+  [4, 0, -1, -1, 1828], [0, 1, 0, 1, -1794], [0, 0, 0, 3, -1749],
+  [0, 1, -1, 1, -1565], [1, 0, 0, 1, -1491], [0, 1, 1, 1, -1475],
+  [0, 1, 1, -1, -1410], [0, 1, 0, -1, -1344], [1, 0, 0, -1, -1335],
+  [0, 0, 3, 1, 1107], [4, 0, 0, -1, 1021], [4, 0, -1, 1, 833],
+  [0, 0, 1, -3, 777], [4, 0, -2, 1, 671], [2, 0, 0, -3, 607],
+  [2, 0, 2, -1, 596], [2, -1, 1, -1, 491], [2, 0, -2, 1, -451],
+  [0, 0, 3, -1, 439], [2, 0, 2, 1, 422], [2, 0, -3, -1, 421],
+  [2, 1, -1, 1, -366], [2, 1, 0, 1, -351], [4, 0, 0, 1, 331],
+  [2, -1, 1, 1, 315], [2, -2, 0, -1, 302], [0, 0, 1, 3, -283],
+  [2, 1, 1, -1, -229], [1, 1, 0, -1, 223], [1, 1, 0, 1, 223],
+  [0, 1, -2, -1, -220], [2, 1, -1, -1, -220], [1, 0, 1, 1, -185],
+  [2, -1, -2, -1, 181], [0, 1, 2, 1, -177], [4, 0, -2, -1, 176],
+  [4, -1, -1, -1, 166], [1, 0, 1, -1, -164], [4, 0, 1, -1, 132],
+  [1, 0, -1, -1, -119], [4, -1, 0, -1, 115], [2, -2, 0, 1, 107],
+];
+
+/** Sum of a Meeus table 47 series, its terms in M shrunk by the eccentricity E. */
+function seriesSum(terms, D, M, Mp, F, E) {
+  var sum = 0.0;
+  for (var i = 0; i < terms.length; i++) {
+    var t = terms[i];
+    var m = Math.abs(t[1]);
+    sum += t[4] * (m === 1 ? E : m === 2 ? E * E : 1.0)
+         * sind(t[0] * D + t[1] * M + t[2] * Mp + t[3] * F);
+  }
+  return sum;
+}
+
+/**
+ * Apparent geocentric position of the Moon at `epoch` (seconds), Meeus ch. 47,
+ * in degrees: { longitude, latitude } on the ecliptic, the longitude with the
+ * nutation, and { rightAscension, declination } on the sky. Good to about 10"
+ * in longitude and 4" in latitude.
+ */
+function moonPosition(epoch) {
+  var T = (jdFromEpoch(epoch) + DELTA_T_DAYS - 2451545.0) / 36525.0;  // dynamical time
+  var T2 = T * T, T3 = T2 * T, T4 = T3 * T;
+  var Lp = 218.3164477 + 481267.88123421 * T - 0.0015786 * T2 + T3 / 538841.0 - T4 / 65194000.0;
+  var D = 297.8501921 + 445267.1114034 * T - 0.0018819 * T2 + T3 / 545868.0 - T4 / 113065000.0;
+  var M = 357.5291092 + 35999.0502909 * T - 0.0001536 * T2 + T3 / 24490000.0;
+  var Mp = 134.9633964 + 477198.8675055 * T + 0.0087414 * T2 + T3 / 69699.0 - T4 / 14712000.0;
+  var F = 93.2720950 + 483202.0175233 * T - 0.0036539 * T2 - T3 / 3526000.0 + T4 / 863310000.0;
+  var E = 1.0 - 0.002516 * T - 0.0000074 * T2;
+  // Venus, Jupiter and the flattening of the Earth.
+  var A1 = 119.75 + 131.849 * T;
+  var A2 = 53.09 + 479264.290 * T;
+  var A3 = 313.45 + 481266.484 * T;
+
+  var sumL = seriesSum(LONGITUDE_TERMS, D, M, Mp, F, E)
+           + 3958 * sind(A1) + 1962 * sind(Lp - F) + 318 * sind(A2);
+  var sumB = seriesSum(LATITUDE_TERMS, D, M, Mp, F, E)
+           - 2235 * sind(Lp) + 382 * sind(A3) + 175 * sind(A1 - F) + 175 * sind(A1 + F)
+           + 127 * sind(Lp - Mp) - 115 * sind(Lp + Mp);
+
+  // Nutation and obliquity, to the 0.5" of Meeus ch. 22's short series.
+  var omega = 125.04452 - 1934.136261 * T;
+  var Ls = 280.4665 + 36000.7698 * T;
+  var Lm = 218.3165 + 481267.8813 * T;
+  var dPsi = (-17.20 * sind(omega) - 1.32 * sind(2 * Ls) - 0.23 * sind(2 * Lm)
+              + 0.21 * sind(2 * omega)) / 3600.0;
+  var dEps = (9.20 * cosd(omega) + 0.57 * cosd(2 * Ls) + 0.10 * cosd(2 * Lm)
+              - 0.09 * cosd(2 * omega)) / 3600.0;
+  var eps = 23.4392911 - (46.8150 * T + 0.00059 * T2 - 0.001813 * T3) / 3600.0 + dEps;
+
+  var lambda = Lp + sumL / 1e6 + dPsi;
+  var beta = sumB / 1e6;
+  var dec = Math.asin(sind(beta) * cosd(eps) + cosd(beta) * sind(eps) * sind(lambda)) / DEG;
+  var ra = Math.atan2(sind(lambda) * cosd(eps) - Math.tan(beta * DEG) * sind(eps),
+                      cosd(lambda)) / DEG;
+  return {
+    longitude: ((lambda % 360) + 360) % 360,
+    latitude: beta,
+    rightAscension: (ra + 360) % 360,
+    declination: dec,
+  };
+}
+
 /**
  * Earth-Moon distance at `epoch` (seconds), in km, centre to centre (Meeus
  * ch. 47). Unrounded, so the apsis search below sees a smooth curve.
@@ -413,49 +523,84 @@ function isApproaching(epoch) {
 }
 
 /**
- * Perigees and apogees between `fromEpoch` and `toEpoch`, in chronological
- * order: { perigee: bool, time: epochSeconds, distance: km }.
+ * Turns of `value(epoch)` between `fromEpoch` and `toEpoch`, in chronological
+ * order: { minimum: bool, time: epochSeconds }.
  *
- * The distance is sampled every six hours, on a grid fixed to the epoch so that
+ * The value is sampled every six hours, on a grid fixed to the epoch so that
  * any call finds the same turns; each one is then narrowed down by golden-
  * section search and rounded to the minute, so its time is stable too. The
  * grid starts a step early and ends a step late: a turn is only seen from the
  * sample after the one closest to it.
  */
-function apsides(fromEpoch, toEpoch) {
+function turns(value, fromEpoch, toEpoch) {
   var STEP = 6 * 3600;
   var R = 0.6180339887;  // inverse golden ratio
   var out = [];
-  var t0 = Math.floor(fromEpoch / STEP) * STEP - STEP, d0 = distanceKm(t0);
-  var t1 = t0 + STEP, d1 = distanceKm(t1);
+  var t0 = Math.floor(fromEpoch / STEP) * STEP - STEP, d0 = value(t0);
+  var t1 = t0 + STEP, d1 = value(t1);
   for (var t2 = t1 + STEP; t2 <= toEpoch + 2 * STEP; t2 += STEP) {
-    var d2 = distanceKm(t2);
-    var perigee = d1 < d0 && d1 <= d2;
-    if (perigee || (d1 > d0 && d1 >= d2)) {
-      // Search for the minimum of sign * distance; each round keeps one probe.
-      var sign = perigee ? 1 : -1;
+    var d2 = value(t2);
+    var minimum = d1 < d0 && d1 <= d2;
+    if (minimum || (d1 > d0 && d1 >= d2)) {
+      // Search for the minimum of sign * value; each round keeps one probe.
+      var sign = minimum ? 1 : -1;
       var a = t0, b = t2;
-      var c1 = b - (b - a) * R, f1 = sign * distanceKm(c1);
-      var c2 = a + (b - a) * R, f2 = sign * distanceKm(c2);
+      var c1 = b - (b - a) * R, f1 = sign * value(c1);
+      var c2 = a + (b - a) * R, f2 = sign * value(c2);
       while (b - a > 30) {
         if (f1 < f2) {
           b = c2; c2 = c1; f2 = f1;
-          c1 = b - (b - a) * R; f1 = sign * distanceKm(c1);
+          c1 = b - (b - a) * R; f1 = sign * value(c1);
         } else {
           a = c1; c1 = c2; f1 = f2;
-          c2 = a + (b - a) * R; f2 = sign * distanceKm(c2);
+          c2 = a + (b - a) * R; f2 = sign * value(c2);
         }
       }
       var time = Math.round((a + b) / 120) * 60;
-      if (time > fromEpoch && time <= toEpoch) {
-        // Rounded to the km like the watch, so both class it the same.
-        out.push({ perigee: perigee, time: time, distance: Math.round(distanceKm(time)) });
-      }
+      if (time > fromEpoch && time <= toEpoch) out.push({ minimum: minimum, time: time });
     }
     t0 = t1; d0 = d1;
     t1 = t2; d1 = d2;
   }
   return out;
+}
+
+/**
+ * Perigees and apogees between `fromEpoch` and `toEpoch`, in chronological
+ * order: { perigee: bool, time: epochSeconds, distance: km }.
+ */
+function apsides(fromEpoch, toEpoch) {
+  return turns(distanceKm, fromEpoch, toEpoch).map(function (t) {
+    // Rounded to the km like the watch, so both class it the same.
+    return { perigee: t.minimum, time: t.time, distance: Math.round(distanceKm(t.time)) };
+  });
+}
+
+/** The Moon's declination at `epoch`, in degrees, north positive. */
+function declination(epoch) {
+  return moonPosition(epoch).declination;
+}
+
+/**
+ * The turns of the Moon's declination between `fromEpoch` and `toEpoch`, in
+ * chronological order: { northern: bool, time: epochSeconds, declination }.
+ * At a northern turn the Moon is as far north as it goes this month, at its
+ * highest seen from the northern hemisphere and its lowest from the southern
+ * one, and the other way round at a southern turn.
+ */
+function declinationTurns(fromEpoch, toEpoch) {
+  return turns(declination, fromEpoch, toEpoch).map(function (t) {
+    return { northern: !t.minimum, time: t.time, declination: declination(t.time) };
+  });
+}
+
+/**
+ * Whether the Moon's declination grows northward at `epoch`, from its value a
+ * minute later. Seen from the northern hemisphere the Moon then passes higher
+ * in the sky each day; seen from the southern one, lower.
+ */
+function isDeclinationNorthing(epoch) {
+  return declination(epoch + 60) > declination(epoch);
 }
 
 /**
@@ -489,6 +634,9 @@ function upcoming(nowEpoch, count) {
 }
 
 module.exports = {
+  moonPosition: moonPosition,
+  declinationTurns: declinationTurns,
+  isDeclinationNorthing: isDeclinationNorthing,
   lunationFraction: lunationFraction,
   isApproaching: isApproaching,
   upcoming: upcoming,

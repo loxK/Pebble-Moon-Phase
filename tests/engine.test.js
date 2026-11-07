@@ -158,10 +158,44 @@ test('greatest eclipse within two minutes of the published time', function () {
   });
 });
 
+test('Moon position of Meeus example 47.a (1992-04-12 0h TD)', function () {
+  var p = Moon.moonPosition((2448724.5 - 2440587.5) * 86400 - 69);
+  assert.ok(Math.abs(p.longitude - 133.167265) < 0.0001, 'longitude ' + p.longitude);
+  assert.ok(Math.abs(p.latitude - -3.229126) < 0.0001, 'latitude ' + p.latitude);
+  assert.ok(Math.abs(p.rightAscension - 134.688470) < 0.0001, 'right ascension ' + p.rightAscension);
+  assert.ok(Math.abs(p.declination - 13.768368) < 0.0001, 'declination ' + p.declination);
+});
+
+test('declination turns alternate and reach the lunar standstills', function () {
+  function extreme(from, to, pick) {
+    return Moon.declinationTurns(Date.UTC(from, 0, 1) / 1000, Date.UTC(to, 0, 1) / 1000)
+      .reduce(function (a, t) { return pick(Math.abs(t.declination), Math.abs(a.declination)) ? t : a; });
+  }
+  // Major standstill: 23.44 + 5.15 degrees, the farthest south on 2025-03-22.
+  var major = extreme(2024, 2026, function (a, b) { return a > b; });
+  assert.ok(Math.abs(major.declination - -28.73) < 0.02, 'major ' + major.declination);
+  assert.strictEqual(new Date(major.time * 1000).toISOString().slice(0, 10), '2025-03-22');
+  // Minor standstill: 23.44 - 5.30 degrees, the inclination at its widest.
+  var minor = extreme(2033, 2036, function (a, b) { return a < b; });
+  assert.ok(Math.abs(Math.abs(minor.declination) - 18.14) < 0.02, 'minor ' + minor.declination);
+
+  var turns = Moon.declinationTurns(Date.UTC(2026, 0, 1) / 1000, Date.UTC(2027, 0, 1) / 1000);
+  turns.forEach(function (t, i) {
+    if (i > 0) {
+      assert.notStrictEqual(t.northern, turns[i - 1].northern, 'alternation ' + t.time);
+      var days = (t.time - turns[i - 1].time) / 86400;
+      assert.ok(days > 12 && days < 15.5, 'half a tropical month: ' + days);
+      var mid = (t.time + turns[i - 1].time) / 2;
+      assert.strictEqual(Moon.isDeclinationNorthing(mid), t.northern, 'direction ' + mid);
+    }
+  });
+});
+
 // The watch engine, src/c/moon_phase.c, built on the host against
 // tests/host/pebble.h, must find the same events as this one. Its own sine and
-// cosine are good to 3e-8, which can move a time by a second, an apsis rounded
-// to the minute by one minute, a distance rounded to the km by one km.
+// cosine are good to 3e-8, which can move a time by a second, an apsis or a
+// declination turn rounded to the minute by one minute, a distance rounded to
+// the km by one km.
 function dumpCEngine(from, to) {
   var childProcess = require('child_process');
   var fs = require('fs');
@@ -176,7 +210,8 @@ function dumpCEngine(from, to) {
       '-o', bin, path.join(__dirname, 'host', 'engine_dump.c'),
       path.join(root, 'src', 'c', 'moon_phase.c'), '-lm',
     ], { stdio: ['ignore', 'ignore', 'inherit'] });
-    return childProcess.execFileSync(bin, ['' + from, '' + to], { encoding: 'utf8' });
+    return childProcess.execFileSync(bin, ['' + from, '' + to],
+                                     { encoding: 'utf8', maxBuffer: 64 << 20 });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -209,9 +244,15 @@ function jsEngineLines(from, to) {
   Moon.apsides(from, to).forEach(function (a) {
     lines.push(['apsis', a.time, a.perigee ? 1 : 0, a.distance]);
   });
+  Moon.declinationTurns(from, to).forEach(function (t) {
+    lines.push(['turn', t.time, t.northern ? 1 : 0, t.declination]);
+  });
   for (var d = from; d <= to; d += 86400) {
     lines.push(['state', d, Moon.lunationFraction(d), Moon.isApproaching(d) ? 1 : 0,
                 Math.round(Moon.distanceKm(d))]);
+    var p = Moon.moonPosition(d);
+    lines.push(['position', d, p.longitude, p.latitude, p.rightAscension, p.declination,
+                Moon.isDeclinationNorthing(d) ? 1 : 0]);
   }
   for (var t = from; t <= to; t += 30 * 86400) {
     var next = Moon.nextEclipse(t, lunarUmbral);
@@ -235,7 +276,7 @@ test('the watch engine finds the same events, 2000 to 2050', function () {
       assert.strictEqual(l[2], phases[i + 1][1], 'C follow ' + new Date(l[1] * 1000).toISOString());
     }
   });
-  ['phase', 'node', 'apsis', 'next', 'state'].forEach(function (kind) {
+  ['phase', 'node', 'apsis', 'turn', 'next', 'state', 'position'].forEach(function (kind) {
     var a = c.filter(function (l) { return l[0] === kind; });
     var b = js.filter(function (l) { return l[0] === kind; });
     assert.strictEqual(a.length, b.length, kind + ': ' + a.length + ' in C, ' + b.length + ' in JS');
@@ -246,6 +287,11 @@ test('the watch engine finds the same events, 2000 to 2050', function () {
         var d = Math.abs(Number(l[field]) - Number(r[field]));
         assert.ok(d <= tolerance, where + ': field ' + field + ' C ' + l[field] + ', JS ' + r[field]);
       }
+      function nearAngle(field, tolerance) {
+        var d = Math.abs(Number(l[field]) - Number(r[field])) % 360;
+        assert.ok(Math.min(d, 360 - d) <= tolerance,
+                  where + ': field ' + field + ' C ' + l[field] + ', JS ' + r[field]);
+      }
       function same(field) {
         assert.strictEqual(String(l[field]), String(r[field]), where + ': field ' + field);
       }
@@ -255,6 +301,11 @@ test('the watch engine finds the same events, 2000 to 2050', function () {
         near(1, 2); same(2);
       } else if (kind === 'apsis') {
         near(1, 60); same(2); near(3, 1);
+      } else if (kind === 'turn') {
+        near(1, 60); same(2); near(3, 0.001);
+      } else if (kind === 'position') {
+        same(1); nearAngle(2, 0.00001); near(3, 0.00001); nearAngle(4, 0.00001); near(5, 0.00001);
+        same(6);
       } else if (kind === 'state') {
         same(1); near(2, 0.00001); same(3); near(4, 1);
       } else {

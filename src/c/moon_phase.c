@@ -278,35 +278,61 @@ static const DistanceTerm DISTANCE_TERMS[] = {
   {2, 0, -1, -2, 8752},
 };
 
+/** The arguments of the Meeus ch. 47 series, in degrees. */
+typedef struct {
+  double T;   //!< Julian centuries since J2000, in dynamical time.
+#if MOON_HAS_DETAILS
+  double Lp;  //!< The Moon's mean longitude.
+#endif
+  double D;   //!< Its mean elongation.
+  double M;   //!< The Sun's mean anomaly.
+  double Mp;  //!< The Moon's mean anomaly.
+  double F;   //!< Its argument of latitude.
+  double E;   //!< Terms involving M shrink with the eccentricity of the Earth's orbit.
+} OrbitArgs;
+
+/** The series arguments at UTC epoch `t`, in seconds that may carry a fraction. */
+static OrbitArgs prv_orbit_args(double t) {
+  double T = (t / MP_SECONDS_PER_DAY + JD_UNIX_EPOCH + DELTA_T_DAYS - 2451545.0) / 36525.0;
+  double T2 = T * T;
+  double T3 = T2 * T;
+  double T4 = T3 * T;
+  OrbitArgs a = {
+    .T = T,
+#if MOON_HAS_DETAILS
+    .Lp = fmod(218.3164477 + 481267.88123421 * T - 0.0015786 * T2
+               + T3 / 538841.0 - T4 / 65194000.0, 360.0),
+#endif
+    .D = fmod(297.8501921 + 445267.1114034 * T - 0.0018819 * T2
+              + T3 / 545868.0 - T4 / 113065000.0, 360.0),
+    .M = fmod(357.5291092 + 35999.0502909 * T - 0.0001536 * T2 + T3 / 24490000.0, 360.0),
+    .Mp = fmod(134.9633964 + 477198.8675055 * T + 0.0087414 * T2
+               + T3 / 69699.0 - T4 / 14712000.0, 360.0),
+    .F = fmod(93.2720950 + 483202.0175233 * T - 0.0036539 * T2
+              - T3 / 3526000.0 + T4 / 863310000.0, 360.0),
+    .E = 1.0 - 0.002516 * T - 0.0000074 * T2,
+  };
+  return a;
+}
+
+/** The coefficient `c` of a series term in `m` times M, shrunk by the eccentricity. */
+static double prv_shrink(double c, int m, double E) {
+  if (m == 1 || m == -1) return c * E;
+  if (m == 2 || m == -2) return c * E * E;
+  return c;
+}
+
 /**
  * Earth-Moon distance in km at UTC epoch `t`, in seconds that may carry a
  * fraction, unrounded.
  */
 static double prv_distance_at(double t) {
-  // Julian centuries since J2000, in dynamical time.
-  double T = (t / MP_SECONDS_PER_DAY + JD_UNIX_EPOCH + DELTA_T_DAYS - 2451545.0) / 36525.0;
-  double T2 = T * T;
-  double T3 = T2 * T;
-  double T4 = T3 * T;
-
-  double D = fmod(297.8501921 + 445267.1114034 * T - 0.0018819 * T2
-                  + T3 / 545868.0 - T4 / 113065000.0, 360.0);
-  double M = fmod(357.5291092 + 35999.0502909 * T - 0.0001536 * T2
-                  + T3 / 24490000.0, 360.0);
-  double Mp = fmod(134.9633964 + 477198.8675055 * T + 0.0087414 * T2
-                   + T3 / 69699.0 - T4 / 14712000.0, 360.0);
-  double F = fmod(93.2720950 + 483202.0175233 * T - 0.0036539 * T2
-                  - T3 / 3526000.0 + T4 / 863310000.0, 360.0);
-  // Terms involving M shrink with the eccentricity of the Earth's orbit.
-  double E = 1.0 - 0.002516 * T - 0.0000074 * T2;
-
+  OrbitArgs a = prv_orbit_args(t);
   double sum = 0.0;
   for (unsigned i = 0; i < sizeof(DISTANCE_TERMS) / sizeof(DISTANCE_TERMS[0]); i++) {
     const DistanceTerm *term = &DISTANCE_TERMS[i];
-    double c = term->r;
-    if (term->m == 1 || term->m == -1) c *= E;
-    else if (term->m == 2 || term->m == -2) c *= E * E;
-    sum += c * mp_cos_deg(term->d * D + term->m * M + term->mp * Mp + term->f * F);
+    sum += prv_shrink(term->r, term->m, a.E)
+         * mp_cos_deg(term->d * a.D + term->m * a.M + term->mp * a.Mp + term->f * a.F);
   }
   return 385000.56 + sum / 1000.0;
 }
@@ -547,41 +573,52 @@ int moon_nodes(time_t from, time_t to, MoonNode *out, int max) {
   return found;
 }
 
-#define APSIS_STEP_S (6 * 3600)
+// Turns are searched on a six-hour grid fixed to the epoch, so any call finds
+// the same turns, each one narrowed down by golden-section search and rounded
+// to the minute, so its time is stable too.
+#define TURN_STEP_S (6 * 3600)
 #define INV_GOLDEN 0.6180339887
 
-int moon_apsides(time_t from, time_t to, MoonApsis *out, int max) {
+/** Receives the turn number `i` of a search, a minimum or a maximum. */
+typedef void (*TurnSink)(void *out, int i, time_t time, bool minimum);
+
+/**
+ * The turns of `value` strictly after `from` and up to `to`, at most `max`,
+ * handed to `sink` in chronological order.
+ *
+ * @return How many were found.
+ */
+static int prv_turns(double (*value)(double t), time_t from, time_t to, TurnSink sink,
+                     void *out, int max) {
   int found = 0;
   // The grid starts a step early and ends a step late: a turn is only seen
   // from the sample after the one closest to it.
-  double t0 = floor((double)from / APSIS_STEP_S) * APSIS_STEP_S - APSIS_STEP_S;
-  double d0 = prv_distance_at(t0);
-  double t1 = t0 + APSIS_STEP_S;
-  double d1 = prv_distance_at(t1);
-  for (double t2 = t1 + APSIS_STEP_S; t2 <= (double)to + 2 * APSIS_STEP_S && found < max;
-       t2 += APSIS_STEP_S) {
-    double d2 = prv_distance_at(t2);
-    bool perigee = d1 < d0 && d1 <= d2;
-    if (perigee || (d1 > d0 && d1 >= d2)) {
-      // Search for the minimum of sign * distance; each round keeps one probe.
-      double sign = perigee ? 1.0 : -1.0;
+  double t0 = floor((double)from / TURN_STEP_S) * TURN_STEP_S - TURN_STEP_S;
+  double d0 = value(t0);
+  double t1 = t0 + TURN_STEP_S;
+  double d1 = value(t1);
+  for (double t2 = t1 + TURN_STEP_S; t2 <= (double)to + 2 * TURN_STEP_S && found < max;
+       t2 += TURN_STEP_S) {
+    double d2 = value(t2);
+    bool minimum = d1 < d0 && d1 <= d2;
+    if (minimum || (d1 > d0 && d1 >= d2)) {
+      // Search for the minimum of sign * value; each round keeps one probe.
+      double sign = minimum ? 1.0 : -1.0;
       double a = t0, b = t2;
-      double c1 = b - (b - a) * INV_GOLDEN, f1 = sign * prv_distance_at(c1);
-      double c2 = a + (b - a) * INV_GOLDEN, f2 = sign * prv_distance_at(c2);
+      double c1 = b - (b - a) * INV_GOLDEN, f1 = sign * value(c1);
+      double c2 = a + (b - a) * INV_GOLDEN, f2 = sign * value(c2);
       while (b - a > 30) {
         if (f1 < f2) {
           b = c2; c2 = c1; f2 = f1;
-          c1 = b - (b - a) * INV_GOLDEN; f1 = sign * prv_distance_at(c1);
+          c1 = b - (b - a) * INV_GOLDEN; f1 = sign * value(c1);
         } else {
           a = c1; c1 = c2; f1 = f2;
-          c2 = a + (b - a) * INV_GOLDEN; f2 = sign * prv_distance_at(c2);
+          c2 = a + (b - a) * INV_GOLDEN; f2 = sign * value(c2);
         }
       }
       time_t time = (time_t)(round((a + b) / 120.0) * 60.0);
       if (time > from && time <= to) {
-        out[found].time = time;
-        out[found].perigee = perigee;
-        out[found].distance_km = moon_distance_km(time);
+        sink(out, found, time, minimum);
         found++;
       }
     }
@@ -589,5 +626,167 @@ int moon_apsides(time_t from, time_t to, MoonApsis *out, int max) {
     t1 = t2; d1 = d2;
   }
   return found;
+}
+
+static void prv_apsis_sink(void *out, int i, time_t time, bool minimum) {
+  MoonApsis *apsis = &((MoonApsis *)out)[i];
+  apsis->time = time;
+  apsis->perigee = minimum;
+  apsis->distance_km = moon_distance_km(time);
+}
+
+int moon_apsides(time_t from, time_t to, MoonApsis *out, int max) {
+  return prv_turns(prv_distance_at, from, to, prv_apsis_sink, out, max);
+}
+
+// Longitude and latitude terms of Meeus tables 47.A and 47.B: multiples of D,
+// M, M' and F, with the coefficient in 1e-6 degree. Longitude rows whose term
+// is zero are left out.
+typedef struct {
+  int8_t d, m, mp, f;
+  int32_t c;
+} PositionTerm;
+
+static const PositionTerm LONGITUDE_TERMS[] = {
+  {0, 0, 1, 0, 6288774}, {2, 0, -1, 0, 1274027}, {2, 0, 0, 0, 658314}, {0, 0, 2, 0, 213618},
+  {0, 1, 0, 0, -185116}, {0, 0, 0, 2, -114332}, {2, 0, -2, 0, 58793}, {2, -1, -1, 0, 57066},
+  {2, 0, 1, 0, 53322}, {2, -1, 0, 0, 45758}, {0, 1, -1, 0, -40923}, {1, 0, 0, 0, -34720},
+  {0, 1, 1, 0, -30383}, {2, 0, 0, -2, 15327}, {0, 0, 1, 2, -12528}, {0, 0, 1, -2, 10980},
+  {4, 0, -1, 0, 10675}, {0, 0, 3, 0, 10034}, {4, 0, -2, 0, 8548}, {2, 1, -1, 0, -7888},
+  {2, 1, 0, 0, -6766}, {1, 0, -1, 0, -5163}, {1, 1, 0, 0, 4987}, {2, -1, 1, 0, 4036},
+  {2, 0, 2, 0, 3994}, {4, 0, 0, 0, 3861}, {2, 0, -3, 0, 3665}, {0, 1, -2, 0, -2689},
+  {2, 0, -1, 2, -2602}, {2, -1, -2, 0, 2390}, {1, 0, 1, 0, -2348}, {2, -2, 0, 0, 2236},
+  {0, 1, 2, 0, -2120}, {0, 2, 0, 0, -2069}, {2, -2, -1, 0, 2048}, {2, 0, 1, -2, -1773},
+  {2, 0, 0, 2, -1595}, {4, -1, -1, 0, 1215}, {0, 0, 2, 2, -1110}, {3, 0, -1, 0, -892},
+  {2, 1, 1, 0, -810}, {4, -1, -2, 0, 759}, {0, 2, -1, 0, -713}, {2, 2, -1, 0, -700},
+  {2, 1, -2, 0, 691}, {2, -1, 0, -2, 596}, {4, 0, 1, 0, 549}, {0, 0, 4, 0, 537},
+  {4, -1, 0, 0, 520}, {1, 0, -2, 0, -487}, {2, 1, 0, -2, -399}, {0, 0, 2, -2, -381},
+  {1, 1, 1, 0, 351}, {3, 0, -2, 0, -340}, {4, 0, -3, 0, 330}, {2, -1, 2, 0, 327},
+  {0, 2, 1, 0, -323}, {1, 1, -1, 0, 299}, {2, 0, 3, 0, 294},
+};
+
+static const PositionTerm LATITUDE_TERMS[] = {
+  {0, 0, 0, 1, 5128122}, {0, 0, 1, 1, 280602}, {0, 0, 1, -1, 277693}, {2, 0, 0, -1, 173237},
+  {2, 0, -1, 1, 55413}, {2, 0, -1, -1, 46271}, {2, 0, 0, 1, 32573}, {0, 0, 2, 1, 17198},
+  {2, 0, 1, -1, 9266}, {0, 0, 2, -1, 8822}, {2, -1, 0, -1, 8216}, {2, 0, -2, -1, 4324},
+  {2, 0, 1, 1, 4200}, {2, 1, 0, -1, -3359}, {2, -1, -1, 1, 2463}, {2, -1, 0, 1, 2211},
+  {2, -1, -1, -1, 2065}, {0, 1, -1, -1, -1870}, {4, 0, -1, -1, 1828}, {0, 1, 0, 1, -1794},
+  {0, 0, 0, 3, -1749}, {0, 1, -1, 1, -1565}, {1, 0, 0, 1, -1491}, {0, 1, 1, 1, -1475},
+  {0, 1, 1, -1, -1410}, {0, 1, 0, -1, -1344}, {1, 0, 0, -1, -1335}, {0, 0, 3, 1, 1107},
+  {4, 0, 0, -1, 1021}, {4, 0, -1, 1, 833}, {0, 0, 1, -3, 777}, {4, 0, -2, 1, 671},
+  {2, 0, 0, -3, 607}, {2, 0, 2, -1, 596}, {2, -1, 1, -1, 491}, {2, 0, -2, 1, -451},
+  {0, 0, 3, -1, 439}, {2, 0, 2, 1, 422}, {2, 0, -3, -1, 421}, {2, 1, -1, 1, -366},
+  {2, 1, 0, 1, -351}, {4, 0, 0, 1, 331}, {2, -1, 1, 1, 315}, {2, -2, 0, -1, 302},
+  {0, 0, 1, 3, -283}, {2, 1, 1, -1, -229}, {1, 1, 0, -1, 223}, {1, 1, 0, 1, 223},
+  {0, 1, -2, -1, -220}, {2, 1, -1, -1, -220}, {1, 0, 1, 1, -185}, {2, -1, -2, -1, 181},
+  {0, 1, 2, 1, -177}, {4, 0, -2, -1, 176}, {4, -1, -1, -1, 166}, {1, 0, 1, -1, -164},
+  {4, 0, 1, -1, 132}, {1, 0, -1, -1, -119}, {4, -1, 0, -1, 115}, {2, -2, 0, 1, 107},
+};
+
+/** Sum of a table 47 series of sines. */
+static double prv_series_sum(const PositionTerm *terms, unsigned count, const OrbitArgs *a) {
+  double sum = 0.0;
+  for (unsigned i = 0; i < count; i++) {
+    const PositionTerm *term = &terms[i];
+    sum += prv_shrink(term->c, term->m, a->E)
+         * prv_sind(term->d * a->D + term->m * a->M + term->mp * a->Mp + term->f * a->F);
+  }
+  return sum;
+}
+
+/** Arcsine in degrees of `x`, |x| <= 0.9, by Newton's method on mp_sin_deg. */
+static double prv_asin_deg(double x) {
+  double y = x / DEG_TO_RAD;
+  for (int i = 0; i < 5; i++) {
+    y -= (prv_sind(y) - x) / (prv_cosd(y) * DEG_TO_RAD);
+  }
+  return y;
+}
+
+/**
+ * Angle in degrees, in (-180, 180], of the point (`x`, `y`): a polynomial
+ * arctangent good to 0.1 degree, then Newton's method on x sin a - y cos a.
+ */
+static double prv_atan2_deg(double y, double x) {
+  double ax = fabs(x), ay = fabs(y);
+  if (ax == 0.0 && ay == 0.0) return 0.0;
+  double t = ax > ay ? ay / ax : ax / ay;
+  double a = (M_PI / 4 * t - t * (t - 1.0) * (0.2447 + 0.0663 * t)) / DEG_TO_RAD;
+  if (ay > ax) a = 90.0 - a;
+  if (x < 0) a = 180.0 - a;
+  if (y < 0) a = -a;
+  for (int i = 0; i < 2; i++) {
+    double s = prv_sind(a), c = prv_cosd(a);
+    a -= (x * s - y * c) / ((x * c + y * s) * DEG_TO_RAD);
+  }
+  return a;
+}
+
+/** Apparent position of the Moon at UTC epoch `t`, in seconds that may carry a fraction. */
+static MoonPosition prv_position_at(double t) {
+  OrbitArgs a = prv_orbit_args(t);
+  double T = a.T, T2 = T * T, T3 = T2 * T;
+  double Lp = a.Lp, Mp = a.Mp, F = a.F;
+  // Venus, Jupiter and the flattening of the Earth.
+  double A1 = 119.75 + 131.849 * T;
+  double A2 = 53.09 + 479264.290 * T;
+  double A3 = 313.45 + 481266.484 * T;
+
+  double sum_l = prv_series_sum(LONGITUDE_TERMS, sizeof(LONGITUDE_TERMS) / sizeof(LONGITUDE_TERMS[0]),
+                                &a)
+               + 3958 * prv_sind(A1) + 1962 * prv_sind(Lp - F) + 318 * prv_sind(A2);
+  double sum_b = prv_series_sum(LATITUDE_TERMS, sizeof(LATITUDE_TERMS) / sizeof(LATITUDE_TERMS[0]),
+                                &a)
+               - 2235 * prv_sind(Lp) + 382 * prv_sind(A3) + 175 * prv_sind(A1 - F)
+               + 175 * prv_sind(A1 + F) + 127 * prv_sind(Lp - Mp) - 115 * prv_sind(Lp + Mp);
+
+  // Nutation and obliquity, to the 0.5" of Meeus ch. 22's short series.
+  double omega = 125.04452 - 1934.136261 * T;
+  double Ls = 280.4665 + 36000.7698 * T;
+  double Lm = 218.3165 + 481267.8813 * T;
+  double d_psi = (-17.20 * prv_sind(omega) - 1.32 * prv_sind(2 * Ls) - 0.23 * prv_sind(2 * Lm)
+                  + 0.21 * prv_sind(2 * omega)) / 3600.0;
+  double d_eps = (9.20 * prv_cosd(omega) + 0.57 * prv_cosd(2 * Ls) + 0.10 * prv_cosd(2 * Lm)
+                  - 0.09 * prv_cosd(2 * omega)) / 3600.0;
+  double eps = 23.4392911 - (46.8150 * T + 0.00059 * T2 - 0.001813 * T3) / 3600.0 + d_eps;
+
+  double lambda = fmod(Lp + sum_l / 1e6 + d_psi, 360.0);
+  if (lambda < 0) lambda += 360.0;
+  double beta = sum_b / 1e6;
+  double sin_lambda = prv_sind(lambda);
+  double ra = prv_atan2_deg(sin_lambda * prv_cosd(eps)
+                            - prv_sind(beta) / prv_cosd(beta) * prv_sind(eps),
+                            prv_cosd(lambda));
+  MoonPosition position = {
+    .longitude = lambda,
+    .latitude = beta,
+    .right_ascension = ra < 0 ? ra + 360.0 : ra,
+    .declination = prv_asin_deg(prv_sind(beta) * prv_cosd(eps)
+                                + prv_cosd(beta) * prv_sind(eps) * sin_lambda),
+  };
+  return position;
+}
+
+MoonPosition moon_position(time_t t) {
+  return prv_position_at((double)t);
+}
+
+static double prv_declination_at(double t) {
+  return prv_position_at(t).declination;
+}
+
+static void prv_declination_sink(void *out, int i, time_t time, bool minimum) {
+  MoonDeclinationTurn *turn = &((MoonDeclinationTurn *)out)[i];
+  turn->time = time;
+  turn->northern = !minimum;
+  turn->declination = (float)prv_declination_at((double)time);
+}
+
+int moon_declination_turns(time_t from, time_t to, MoonDeclinationTurn *out, int max) {
+  return prv_turns(prv_declination_at, from, to, prv_declination_sink, out, max);
+}
+
+bool moon_is_declination_northing(time_t t) {
+  return prv_declination_at((double)t + APPROACH_STEP_S) > prv_declination_at((double)t);
 }
 #endif

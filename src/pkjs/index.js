@@ -8,9 +8,9 @@
  *
  *  - Sends the hemisphere (from the phone GPS) to the watch, but only fetches a
  *    new GPS fix when the cached value is missing or stale, to save battery.
- *  - Pushes timeline pins for the upcoming phases, perigees and apogees on
- *    every launch, and deletes those an event left behind when its computed
- *    time moved.
+ *  - Pushes timeline pins for the upcoming phases, lunar eclipses, perigees,
+ *    apogees and node passages on every launch, and deletes those an event
+ *    left behind when its computed time moved.
  */
 
 var Moon = require('./moon_phase');
@@ -56,6 +56,50 @@ var APSIS_TITLES = {
   'zh-TW': ['近地點', '遠地點'],
 };
 
+// A full moon in the Earth's shadow takes this title: [total, partial]. The
+// app only shows lunar eclipses, so "lunar" is left out.
+var ECLIPSE_TITLES = {
+  en: ['Total eclipse', 'Partial eclipse'],
+  fr: ['Éclipse totale', 'Éclipse partielle'],
+  de: ['Totale Finsternis', 'Partielle Finsternis'],
+  es: ['Eclipse total', 'Eclipse parcial'],
+  it: ['Eclissi totale', 'Eclissi parziale'],
+  pt: ['Eclipse total', 'Eclipse parcial'],
+  'zh-CN': ['月全食', '月偏食'],
+  'zh-TW': ['月全食', '月偏食'],
+};
+
+// Heading of the share of the Moon's diameter in the Earth's shadow, in the
+// pin detail view of an eclipse.
+var SHADOW_HEADINGS = {
+  en: 'In the shadow', fr: 'Dans l’ombre', de: 'Im Schatten', es: 'En la sombra',
+  it: 'In ombra', pt: 'Na sombra', 'zh-CN': '食分', 'zh-TW': '食分',
+};
+
+// Where the Moon crosses the plane of the Earth's orbit: [ascending, descending].
+var NODE_TITLES = {
+  en: ['Ascending node', 'Descending node'],
+  fr: ['Nœud ascendant', 'Nœud descendant'],
+  de: ['Aufsteigender Knoten', 'Absteigender Knoten'],
+  es: ['Nodo ascendente', 'Nodo descendente'],
+  it: ['Nodo ascendente', 'Nodo discendente'],
+  pt: ['Nodo ascendente', 'Nodo descendente'],
+  'zh-CN': ['升交点', '降交点'],
+  'zh-TW': ['升交點', '降交點'],
+};
+
+// Which way the Moon crosses it, shown under a node pin's title.
+var NODE_DIRECTIONS = {
+  en: ['Heading north', 'Heading south'],
+  fr: ['Vers le nord', 'Vers le sud'],
+  de: ['Nach Norden', 'Nach Süden'],
+  es: ['Hacia el norte', 'Hacia el sur'],
+  it: ['Verso nord', 'Verso sud'],
+  pt: ['Rumo ao norte', 'Rumo ao sul'],
+  'zh-CN': ['向北', '向南'],
+  'zh-TW': ['向北', '向南'],
+};
+
 // Section headings of the pin detail view: [distance, next phase, nearest phase].
 var DETAIL_HEADINGS = {
   en: ['Distance', 'Next phase', 'Nearest phase'],
@@ -68,12 +112,15 @@ var DETAIL_HEADINGS = {
   'zh-TW': ['距離', '下一月相', '最近的月相'],
 };
 
-// Thousands separator for the distances.
+// Thousands separator for the distances, and what goes between a number and
+// its percent sign.
 var THOUSANDS = { en: ',', fr: '\u00a0', de: '.', es: '.', it: '.', pt: '.', 'zh-CN': ',', 'zh-TW': ',' };
+var PERCENT_SPACE = { en: '', fr: '\u00a0', de: '\u00a0', es: '\u00a0', it: '', pt: '', 'zh-CN': '', 'zh-TW': '' };
 
 // publishedMedia names declared in package.json (referenced as app://images/NAME).
 var PHASE_ICON_NAME = ['MOON_NEW', 'MOON_FIRST', 'MOON_FULL', 'MOON_LAST'];
 var APSIS_ICON_NAME = ['MOON_PERIGEE', 'MOON_APOGEE'];
+var NODE_ICON_NAME = ['MOON_NODE_ASC', 'MOON_NODE_DESC'];
 
 // Safe localStorage access: if it is unavailable, the app simply degrades to
 // always fetching/pushing (the pre-optimization behavior) instead of crashing.
@@ -306,14 +353,45 @@ function moonPin(id, time, text, iconName) {
   };
 }
 
-/** Title of a phase event: its phase name, or the supermoon one. */
+/**
+ * Whether the app shows an eclipse: a total or partial lunar one. Solar
+ * eclipses depend on where they are seen from, and penumbral ones are hardly
+ * visible.
+ */
+function isShownEclipse(e) {
+  return !e.solar && (e.type === 'total' || e.type === 'partial');
+}
+
+/** The eclipse of a phase event, if the app shows it. */
+function lunarEclipse(ev) {
+  return ev.eclipse && isShownEclipse(ev.eclipse) ? ev.eclipse : null;
+}
+
+/** Title of a phase event: the eclipse, the supermoon or its phase name. */
 function phaseTitle(ev, lang) {
+  var eclipse = lunarEclipse(ev);
+  if (eclipse) return ECLIPSE_TITLES[lang][eclipse.type === 'total' ? 0 : 1];
   return ev.supermoon ? SUPERMOON_TITLES[lang] : PHASE_TITLES[lang][ev.type];
 }
 
 /** Title of a perigee or apogee. */
 function apsisTitle(a, lang) {
   return APSIS_TITLES[lang][a.perigee ? 0 : 1];
+}
+
+/** Title of a passage through a node. */
+function nodeTitle(n, lang) {
+  return NODE_TITLES[lang][n.ascending ? 0 : 1];
+}
+
+/**
+ * Share of the Moon's diameter in the Earth's shadow, as a percentage: 100 for
+ * a total eclipse, whose umbral magnitude goes past 1 when the shadow is wider
+ * than the Moon, and at most 99 for a partial one.
+ */
+function formatShadow(eclipse, lang) {
+  var percent = eclipse.type === 'total' ? 100 : Math.min(99, Math.round(eclipse.magnitude * 100));
+  return percent + PERCENT_SPACE[lang] + '%';
 }
 
 /** Layout text of a pin; `sections` is a list of [heading, paragraph]. */
@@ -334,14 +412,21 @@ function distanceSection(km, lang) {
 
 /**
  * Text of a phase pin. The list shows how far the Moon is in words; the detail
- * adds the km, the perigee or apogee coming before the next phase, if any, and
- * that next phase.
+ * adds how much of the Moon its eclipse covers, if any, the km, then what
+ * comes before the next phase, in order: perigees and apogees ({ perigee,
+ * time, distance }) and node passages ({ ascending, time }), and that next
+ * phase.
  */
-function phaseText(ev, next, apsis, lang) {
-  var sections = [distanceSection(ev.distance, lang)];
-  if (apsis) {
-    sections.push([apsisTitle(apsis, lang), longDate(apsis.time) + '\n' + formatKm(apsis.distance)]);
-  }
+function phaseText(ev, next, coming, lang) {
+  var sections = [];
+  var eclipse = lunarEclipse(ev);
+  if (eclipse) sections.push([SHADOW_HEADINGS[lang], formatShadow(eclipse, lang)]);
+  sections.push(distanceSection(ev.distance, lang));
+  coming.forEach(function (c) {
+    sections.push('perigee' in c
+      ? [apsisTitle(c, lang), longDate(c.time) + '\n' + formatKm(c.distance)]
+      : [nodeTitle(c, lang), longDate(c.time)]);
+  });
   sections.push([DETAIL_HEADINGS[lang][1], phaseTitle(next, lang) + '\n' + longDate(next.time)]);
   return pinText(phaseTitle(ev, lang), Distance.distanceLabel(ev.distance, lang), ev.time, sections);
 }
@@ -358,6 +443,18 @@ function apsisText(a, nearest, lang) {
   ]);
 }
 
+/**
+ * Text of a node pin: which way the Moon crosses the plane of the Earth's
+ * orbit, and in the detail its distance and the phase nearest in time, which
+ * names the eclipse when there is one.
+ */
+function nodeText(n, nearest, lang) {
+  return pinText(nodeTitle(n, lang), NODE_DIRECTIONS[lang][n.ascending ? 0 : 1], n.time, [
+    distanceSection(Moon.distanceKm(n.time), lang),
+    [DETAIL_HEADINGS[lang][2], phaseTitle(nearest, lang) + '\n' + longDate(nearest.time)],
+  ]);
+}
+
 /** The event of `events` closest in time to `time`. */
 function nearestInTime(events, time) {
   return events.reduce(function (best, ev) {
@@ -366,23 +463,25 @@ function nearestInTime(events, time) {
 }
 
 /**
- * Push timeline pins for the upcoming phases, and for the perigees and apogees
- * falling among them. Every pin is pushed each time: the phone app answers the
- * timeline requests itself, with a 2xx even for a pin it later loses (an
- * uninstall drops the pins but keeps localStorage), and it cannot list the
- * pins it holds, so nothing here can tell which ones are still there. A pin
- * pushed again under its id replaces the previous one.
+ * Push timeline pins for the upcoming phases, and for the perigees, apogees and
+ * node passages falling among them. Every pin is pushed each time: the phone
+ * app answers the timeline requests itself, with a 2xx even for a pin it later
+ * loses (an uninstall drops the pins but keeps localStorage), and it cannot
+ * list the pins it holds, so nothing here can tell which ones are still there.
+ * A pin pushed again under its id replaces the previous one.
  */
 function pushMoonPins() {
   var now = Math.floor(Date.now() / 1000);
   // One phase beyond the pinned ones, to name the phase after the last pin and
-  // find the apsis coming before it.
+  // find what comes before it.
   var computed = Moon.upcoming(now, 9);
   var events = computed.slice(0, 8);
   var lastPinned = events[events.length - 1].time;
-  var allApsides = Moon.apsides(now, computed[computed.length - 1].time);
-  var apsides = allApsides.filter(function (a) { return a.time <= lastPinned; });
-  // The phases around the pinned apsides, past ones included, to find the
+  var end = computed[computed.length - 1].time;
+  // Perigees, apogees and node passages up to that phase, in order.
+  var others = Moon.apsides(now, end).concat(Moon.nodes(now, end))
+    .sort(function (a, b) { return a.time - b.time; });
+  // The phases around the pinned events, past ones included, to find the
   // nearest one of each.
   var around = Moon.upcoming(now - 8 * 86400, 12);
   var lang = pickLang();
@@ -395,13 +494,17 @@ function pushMoonPins() {
     if (southern && ev.type === 1) iconType = 3;
     else if (southern && ev.type === 3) iconType = 1;
     var next = computed[i + 1];
-    var apsis = allApsides.filter(function (a) { return a.time > ev.time && a.time < next.time; })[0];
-    return moonPin('moon-' + ev.time, ev.time, phaseText(ev, next, apsis, lang),
+    var coming = others.filter(function (o) { return o.time > ev.time && o.time < next.time; });
+    return moonPin('moon-' + ev.time, ev.time, phaseText(ev, next, coming, lang),
                    PHASE_ICON_NAME[iconType]);
-  }).concat(apsides.map(function (a) {
-    return moonPin('moon-' + (a.perigee ? 'perigee-' : 'apogee-') + a.time, a.time,
-                   apsisText(a, nearestInTime(around, a.time), lang),
-                   APSIS_ICON_NAME[a.perigee ? 0 : 1]);
+  }).concat(others.filter(function (o) { return o.time <= lastPinned; }).map(function (o) {
+    var nearest = nearestInTime(around, o.time);
+    if ('perigee' in o) {
+      return moonPin('moon-' + (o.perigee ? 'perigee-' : 'apogee-') + o.time, o.time,
+                     apsisText(o, nearest, lang), APSIS_ICON_NAME[o.perigee ? 0 : 1]);
+    }
+    return moonPin('moon-node-' + (o.ascending ? 'asc-' : 'desc-') + o.time, o.time,
+                   nodeText(o, nearest, lang), NODE_ICON_NAME[o.ascending ? 0 : 1]);
   }));
 
   // Ids of the pins pushed so far, the keys of an object, for
@@ -432,3 +535,4 @@ Pebble.addEventListener('ready', function () {
   updateHemisphere();
   pushMoonPins();
 });
+

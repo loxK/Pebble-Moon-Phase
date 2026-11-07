@@ -62,7 +62,13 @@
         { "type": "bitmap", "name": "MOON_PERIGEE_LARGE", "file": "images/timeline/moon_perigee_large.png" },
         { "type": "bitmap", "name": "MOON_APOGEE_TINY", "file": "images/timeline/moon_apogee_tiny.png" },
         { "type": "bitmap", "name": "MOON_APOGEE_SMALL", "file": "images/timeline/moon_apogee_small.png" },
-        { "type": "bitmap", "name": "MOON_APOGEE_LARGE", "file": "images/timeline/moon_apogee_large.png" }
+        { "type": "bitmap", "name": "MOON_APOGEE_LARGE", "file": "images/timeline/moon_apogee_large.png" },
+        { "type": "bitmap", "name": "MOON_NODE_ASC_TINY", "file": "images/timeline/moon_node_asc_tiny.png" },
+        { "type": "bitmap", "name": "MOON_NODE_ASC_SMALL", "file": "images/timeline/moon_node_asc_small.png" },
+        { "type": "bitmap", "name": "MOON_NODE_ASC_LARGE", "file": "images/timeline/moon_node_asc_large.png" },
+        { "type": "bitmap", "name": "MOON_NODE_DESC_TINY", "file": "images/timeline/moon_node_desc_tiny.png" },
+        { "type": "bitmap", "name": "MOON_NODE_DESC_SMALL", "file": "images/timeline/moon_node_desc_small.png" },
+        { "type": "bitmap", "name": "MOON_NODE_DESC_LARGE", "file": "images/timeline/moon_node_desc_large.png" }
       ],
       "publishedMedia": [
         { "name": "MOON_NEW", "id": 1, "timeline": { "tiny": "MOON_NEW_TINY", "small": "MOON_NEW_SMALL", "large": "MOON_NEW_LARGE" } },
@@ -74,7 +80,9 @@
         { "name": "MOON_WAN_GIBB", "id": 7, "timeline": { "tiny": "MOON_WAN_GIBB_TINY", "small": "MOON_WAN_GIBB_SMALL", "large": "MOON_WAN_GIBB_LARGE" } },
         { "name": "MOON_WAN_CRESC", "id": 8, "timeline": { "tiny": "MOON_WAN_CRESC_TINY", "small": "MOON_WAN_CRESC_SMALL", "large": "MOON_WAN_CRESC_LARGE" } },
         { "name": "MOON_PERIGEE", "id": 9, "timeline": { "tiny": "MOON_PERIGEE_TINY", "small": "MOON_PERIGEE_SMALL", "large": "MOON_PERIGEE_LARGE" } },
-        { "name": "MOON_APOGEE", "id": 10, "timeline": { "tiny": "MOON_APOGEE_TINY", "small": "MOON_APOGEE_SMALL", "large": "MOON_APOGEE_LARGE" } }
+        { "name": "MOON_APOGEE", "id": 10, "timeline": { "tiny": "MOON_APOGEE_TINY", "small": "MOON_APOGEE_SMALL", "large": "MOON_APOGEE_LARGE" } },
+        { "name": "MOON_NODE_ASC", "id": 11, "timeline": { "tiny": "MOON_NODE_ASC_TINY", "small": "MOON_NODE_ASC_SMALL", "large": "MOON_NODE_ASC_LARGE" } },
+        { "name": "MOON_NODE_DESC", "id": 12, "timeline": { "tiny": "MOON_NODE_DESC_TINY", "small": "MOON_NODE_DESC_SMALL", "large": "MOON_NODE_DESC_LARGE" } }
       ]
     }
   }

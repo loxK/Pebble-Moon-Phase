@@ -7,9 +7,9 @@
 # Copyright (c) 2026 Laurent Dinclaux <laurent@knc.nc>
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Draw the eight lunation icons, and the perigee and apogee ones, into
-# resources/images/timeline/, at the three sizes the timeline pins and the
-# launcher glance ask for.
+# Draw the eight lunation icons, the perigee and apogee ones, and those of the
+# ascending and descending nodes into resources/images/timeline/, at the three
+# sizes the timeline pins and the launcher glance ask for.
 #
 # The disc is opaque -- lit side white, dark side black, black rim -- because
 # the launcher draws glance icons untinted on white rows. Shapes are rendered
@@ -130,6 +130,29 @@ def render_apsis(perigee, size, rim):
     return luma, alpha
 
 
+def render_node(ascending, size, rim):
+    """
+    A full Moon crossed by a black line, the plane of the Earth's orbit, with a
+    chevron on it pointing up at the ascending node, where the Moon crosses it
+    northward, and down at the descending one.
+    """
+    luma, alpha = render(PHASES["full"], size, rim)
+    draw = ImageDraw.Draw(luma)
+    s = SUPERSAMPLE
+    centre = size * s / 2.0
+    width = max(2, round(0.09 * size * s))
+    reach = 0.36 * size * s        # half length of the line
+    draw.line([(centre - reach, centre), (centre + reach, centre)], fill=0, width=width)
+    half = 0.2 * size * s
+    depth = 0.16 * size * s
+    up = -1 if ascending else 1
+    tip = centre + up * (0.12 * size * s + depth)
+    back = centre + up * 0.12 * size * s
+    draw.line([(centre - half, back), (centre, tip), (centre + half, back)],
+              fill=0, width=width, joint="curve")
+    return luma, alpha
+
+
 def save(img, path):
     before = path.read_bytes() if path.exists() else None
     img.save(path, optimize=True)
@@ -145,6 +168,9 @@ def main():
     for apsis, perigee in (("perigee", True), ("apogee", False)):
         for name, (size, rim) in SIZES.items():
             save(reduce(*render_apsis(perigee, size, rim), size), OUT / f"moon_{apsis}_{name}.png")
+    for node, ascending in (("node_asc", True), ("node_desc", False)):
+        for name, (size, rim) in SIZES.items():
+            save(reduce(*render_node(ascending, size, rim), size), OUT / f"moon_{node}_{name}.png")
 
 
 if __name__ == "__main__":

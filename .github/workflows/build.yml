@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  PEBBLE_SDK: "4.33.1"
+  PEBBLE_SDK: "4.44"
 
 jobs:
   watchapp:

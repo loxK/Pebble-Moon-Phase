@@ -56,6 +56,45 @@ Moon Phase draws the Moon the way you'd actually see it: the real illuminated sh
 
 </div>
 
+## Plugin for watchfaces and apps
+
+Moon Phase ships a phone-side plugin, so any watchface or app can show the Moon without computing it. Once Moon Phase is installed, subscribe from PebbleKit JS; no permission is needed.
+
+```js
+Pebble.subscribeToSource({
+  category: 'moon',
+  item: 'now',
+  onData: function (envelope) {
+    var moon = envelope.instances[0].properties;
+    console.log(moon.waxing.shortText.text + ', ' + moon.distance.shortText.text);
+  },
+});
+```
+
+**`moon/now`**: the Moon at this moment, one instance, read every 15 minutes.
+
+| Property | Shapes | Value |
+|---|---|---|
+| `waxing` | `boolean`, `shortText` | Whether the lit part grows ("Waxing", "Waning"). |
+| `lunation` | `numericValue` | Position in the lunation, from 0 (new) through 0.5 (full) to 1. |
+| `age` | `numericValue` | Days since the last new moon. |
+| `distance` | `numericValue`, `shortText` | Earth-Moon distance in km, and in words ("Far"). |
+| `approaching` | `boolean`, `shortText` | Whether the Moon is coming closer ("Toward perigee"). |
+| `ascending` | `boolean`, `shortText` | Whether the Moon passes higher in the sky each day ("Ascending"), for the hemisphere of the phone. |
+| `next_phase` | `shortText`, `timestamp` | The next principal phase, its name and time (seconds). |
+
+**`moon/event`**: what comes over the next 30 days, soonest first, then the next lunar eclipse however far, read every hour. Each instance has a `kind`, a `name` and a `time`; phases, perigees and apogees add a `distance`, eclipses a `shadow`.
+
+| Property | Shapes | Value |
+|---|---|---|
+| `kind` | `longText` | `new_moon`, `first_quarter`, `full_moon`, `last_quarter`, `perigee`, `apogee`, `ascending_node`, `descending_node`, `highest`, `lowest` or `lunar_eclipse`. |
+| `name` | `shortText` | The event in words ("Full Moon", "Supermoon", "Partial eclipse"). |
+| `time` | `timestamp`, `shortText`, `longText` | Its time in seconds, its time of day, and its full date. |
+| `distance` | `numericValue`, `shortText` | As in `moon/now`, at that instant. |
+| `shadow` | `numericValue`, `shortText` | Share of the Moon's diameter in the Earth's shadow, in percent. |
+
+Texts follow the language of the phone. The hemisphere and the 12 or 24-hour clock are those Moon Phase last stored, so open the app once after installing it.
+
 ## Build from source
 
 ```sh

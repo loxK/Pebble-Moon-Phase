@@ -46,6 +46,9 @@ jobs:
       - name: Test the phone-side engine
         run: node tests/engine.test.js
 
+      - name: Test the plugin
+        run: node tests/plugin.test.js
+
       - name: Build
         run: pebble build
 

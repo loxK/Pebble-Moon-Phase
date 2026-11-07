@@ -9,6 +9,17 @@ top = '.'
 out = 'build'
 
 
+def bundle_plugin(ctx):
+    """
+    Bundle the plugin script with the modules it requires into plugin.js, which
+    package.json names and the SDK copies into the pbw as it is. Configure
+    checks that it exists, so it is bundled there too.
+    """
+    if ctx.exec_command(['node', 'tools/bundle_plugin.js', 'src/plugin/moon.js', 'plugin.js'],
+                        cwd=ctx.path.abspath()) != 0:
+        ctx.fatal('Could not bundle the plugin script')
+
+
 def options(ctx):
     ctx.load('pebble_sdk')
 
@@ -20,10 +31,12 @@ def configure(ctx):
     change after calling ctx.load('pebble_sdk') and make sure to set the correct environment first.
     Universal configuration: add your change prior to calling ctx.load('pebble_sdk').
     """
+    bundle_plugin(ctx)
     ctx.load('pebble_sdk')
 
 
 def build(ctx):
+    bundle_plugin(ctx)
     ctx.load('pebble_sdk')
 
     build_worker = os.path.exists('worker_src')

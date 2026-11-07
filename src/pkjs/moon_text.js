@@ -92,6 +92,18 @@ var SKY_WORDS = {
   'zh-TW': ['漸升', '漸降', '最高', '最低'],
 };
 
+// Which way the distance goes: [toward perigee, toward apogee].
+var TOWARD_WORDS = {
+  en: ['Toward perigee', 'Toward apogee'],
+  fr: ['Vers le périgée', 'Vers l’apogée'],
+  de: ['Richtung Perigäum', 'Richtung Apogäum'],
+  es: ['Hacia el perigeo', 'Hacia el apogeo'],
+  it: ['Verso il perigeo', 'Verso l’apogeo'],
+  pt: ['Rumo ao perigeu', 'Rumo ao apogeu'],
+  'zh-CN': ['趋向近地点', '趋向远地点'],
+  'zh-TW': ['趨向近地點', '趨向遠地點'],
+};
+
 // Whether the lit part of the Moon grows or shrinks: [waxing, waning].
 var LIGHT_WORDS = {
   en: ['Waxing', 'Waning'],
@@ -303,6 +315,7 @@ module.exports = {
   NODE_DIRECTIONS: NODE_DIRECTIONS,
   SKY_WORDS: SKY_WORDS,
   LIGHT_WORDS: LIGHT_WORDS,
+  TOWARD_WORDS: TOWARD_WORDS,
   THOUSANDS: THOUSANDS,
   PERCENT_SPACE: PERCENT_SPACE,
   langFromWatch: langFromWatch,

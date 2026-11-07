@@ -355,6 +355,12 @@ function kEstimate(epoch) {
   return (yearDec - 2000.0) * 12.3685;
 }
 
+// Range the Earth-Moon distance stays within from 2000 to 2100: the closest
+// perigee (356425 km, 2052-12-06) and the farthest apogee (406706 km,
+// 2002-03-14) sit just inside it.
+var DISTANCE_MIN_KM = 356400;
+var DISTANCE_MAX_KM = 406720;
+
 // A full moon closer than this is a supermoon (timeanddate.com convention;
 // there is no official rule).
 var SUPERMOON_KM = 360000;
@@ -634,6 +640,9 @@ function upcoming(nowEpoch, count) {
 }
 
 module.exports = {
+  SYNODIC_MONTH: SYNODIC_MONTH,
+  DISTANCE_MIN_KM: DISTANCE_MIN_KM,
+  DISTANCE_MAX_KM: DISTANCE_MAX_KM,
   moonPosition: moonPosition,
   declinationTurns: declinationTurns,
   isDeclinationNorthing: isDeclinationNorthing,

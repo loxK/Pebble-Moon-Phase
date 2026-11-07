@@ -27,6 +27,39 @@
       "Location",
       "Timeline"
     ],
+    "plugin": {
+      "description": "The Moon now (waxing or waning, distance, ascending or descending, next phase) and its events over the next 30 days: phases, perigees and apogees, node passages, highest and lowest passes, and the next lunar eclipse.",
+      "script": "plugin.js",
+      "sources": [
+        {
+          "category": "moon",
+          "items": ["now"],
+          "properties": {
+            "waxing": ["boolean", "shortText"],
+            "lunation": ["numericValue"],
+            "age": ["numericValue"],
+            "distance": ["numericValue", "shortText"],
+            "approaching": ["boolean", "shortText"],
+            "ascending": ["boolean", "shortText"],
+            "next_phase": ["shortText", "timestamp"]
+          },
+          "suggestedRefreshIntervalSec": 900
+        },
+        {
+          "category": "moon",
+          "items": ["event"],
+          "supportsMultiple": true,
+          "properties": {
+            "kind": ["longText"],
+            "name": ["shortText"],
+            "time": ["timestamp", "shortText", "longText"],
+            "distance": ["numericValue", "shortText"],
+            "shadow": ["numericValue", "shortText"]
+          },
+          "suggestedRefreshIntervalSec": 3600
+        }
+      ]
+    },
     "messageKeys": [
       "Hemisphere",
       "Clock24h"

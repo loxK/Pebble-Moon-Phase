@@ -1,5 +1,7 @@
 # Pebble build artifacts
 build/
+# The plugin script, bundled by the wscript
+/plugin.js
 *.pbw
 .pebble-cache/
 pebble_screenshot_*.png

@@ -32,6 +32,11 @@ def build(ctx):
     cached_env = ctx.env
     for platform in ctx.env.TARGET_PLATFORMS:
         ctx.env = ctx.all_envs[platform]
+        # Link-time optimisation inlines across the source files: on aplite the
+        # binary shares the 24 KB of app RAM with the heap, which it leaves
+        # about 500 bytes more.
+        ctx.env.append_value('CFLAGS', '-flto')
+        ctx.env.append_value('LINKFLAGS', ['-flto', '-Os'])
         ctx.set_group(ctx.env.PLATFORM_NAME)
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
         ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')

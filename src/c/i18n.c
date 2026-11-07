@@ -100,6 +100,97 @@ static const LangStrings LANGS[LANG_COUNT] = {
   },
 };
 
+#if MOON_HAS_DETAILS
+// No-break space, UTF-8.
+#define NBSP "\xC2\xA0"
+
+// Words of the detail view, the same as the timeline pins (src/pkjs/index.js).
+typedef struct {
+  const char *eclipse[2];        // total, partial
+  const char *apsis[2];          // perigee, apogee
+  const char *node[2];           // ascending, descending
+  const char *distance[5];       // very close .. very far
+  const char *words[I18N_WORD_COUNT];
+  const char *thousands;         // between groups of three digits
+  const char *percent_space;     // between a number and its percent sign
+} DetailStrings;
+
+static const DetailStrings DETAILS[LANG_COUNT] = {
+  [LANG_EN] = {
+    .eclipse = {"Total eclipse", "Partial eclipse"},
+    .apsis = {"Perigee", "Apogee"},
+    .node = {"Ascending node", "Descending node"},
+    .distance = {"Very close", "Close", "Midway", "Far", "Very far"},
+    .words = {"Distance", "Next node", "Next eclipse", "Now",
+              "Next perigee", "Next apogee", "Toward perigee", "Toward apogee"},
+    .thousands = ",", .percent_space = "",
+  },
+  [LANG_FR] = {
+    .eclipse = {"Éclipse totale", "Éclipse partielle"},
+    .apsis = {"Périgée", "Apogée"},
+    .node = {"Nœud ascendant", "Nœud descendant"},
+    .distance = {"Très proche", "Proche", "À mi-distance", "Lointaine", "Très lointaine"},
+    .words = {"Distance", "Prochain nœud", "Prochaine éclipse", "Maintenant",
+              "Prochain périgée", "Prochain apogée", "Vers le périgée", "Vers l’apogée"},
+    .thousands = NBSP, .percent_space = NBSP,
+  },
+  [LANG_DE] = {
+    .eclipse = {"Totale Finsternis", "Partielle Finsternis"},
+    .apsis = {"Perigäum", "Apogäum"},
+    .node = {"Aufsteigender Knoten", "Absteigender Knoten"},
+    .distance = {"Sehr nah", "Nah", "Mittlere Entfernung", "Fern", "Sehr fern"},
+    .words = {"Entfernung", "Nächster Knoten", "Nächste Finsternis", "Jetzt",
+              "Nächstes Perigäum", "Nächstes Apogäum", "Richtung Perigäum", "Richtung Apogäum"},
+    .thousands = ".", .percent_space = NBSP,
+  },
+  [LANG_ES] = {
+    .eclipse = {"Eclipse total", "Eclipse parcial"},
+    .apsis = {"Perigeo", "Apogeo"},
+    .node = {"Nodo ascendente", "Nodo descendente"},
+    .distance = {"Muy cerca", "Cerca", "A media distancia", "Lejos", "Muy lejos"},
+    .words = {"Distancia", "Próximo nodo", "Próximo eclipse", "Ahora",
+              "Próximo perigeo", "Próximo apogeo", "Hacia el perigeo", "Hacia el apogeo"},
+    .thousands = ".", .percent_space = NBSP,
+  },
+  [LANG_IT] = {
+    .eclipse = {"Eclissi totale", "Eclissi parziale"},
+    .apsis = {"Perigeo", "Apogeo"},
+    .node = {"Nodo ascendente", "Nodo discendente"},
+    .distance = {"Molto vicina", "Vicina", "A metà distanza", "Lontana", "Molto lontana"},
+    .words = {"Distanza", "Prossimo nodo", "Prossima eclissi", "Adesso",
+              "Prossimo perigeo", "Prossimo apogeo", "Verso il perigeo", "Verso l’apogeo"},
+    .thousands = ".", .percent_space = "",
+  },
+  [LANG_PT] = {
+    .eclipse = {"Eclipse total", "Eclipse parcial"},
+    .apsis = {"Perigeu", "Apogeu"},
+    .node = {"Nodo ascendente", "Nodo descendente"},
+    .distance = {"Muito perto", "Perto", "A meia distância", "Longe", "Muito longe"},
+    .words = {"Distância", "Próximo nodo", "Próximo eclipse", "Agora",
+              "Próximo perigeu", "Próximo apogeu", "Rumo ao perigeu", "Rumo ao apogeu"},
+    .thousands = ".", .percent_space = "",
+  },
+  [LANG_ZH_CN] = {
+    .eclipse = {"月全食", "月偏食"},
+    .apsis = {"近地点", "远地点"},
+    .node = {"升交点", "降交点"},
+    .distance = {"非常近", "较近", "中等距离", "较远", "非常远"},
+    .words = {"距离", "下一交点", "下次月食", "现在",
+              "下次近地点", "下次远地点", "趋向近地点", "趋向远地点"},
+    .thousands = ",", .percent_space = "",
+  },
+  [LANG_ZH_TW] = {
+    .eclipse = {"月全食", "月偏食"},
+    .apsis = {"近地點", "遠地點"},
+    .node = {"升交點", "降交點"},
+    .distance = {"非常近", "較近", "中等距離", "較遠", "非常遠"},
+    .words = {"距離", "下一交點", "下次月食", "現在",
+              "下次近地點", "下次遠地點", "趨向近地點", "趨向遠地點"},
+    .thousands = ",", .percent_space = "",
+  },
+};
+#endif
+
 #if !defined(PBL_PLATFORM_APLITE)
 // The launcher glance draws its subtitle on a single line, clipped with an
 // ellipsis around 19 characters on the widest watch and 16 on the others, so
@@ -264,3 +355,79 @@ void i18n_date(Lang lang, int day, int month0, bool abbrev, char *buf, size_t le
       break;
   }
 }
+
+void i18n_time(Lang lang, const struct tm *t, char *buf, size_t len) {
+  if (clock_is_24h_style()) {
+    snprintf(buf, len, "%02d:%02d", t->tm_hour, t->tm_min);
+    return;
+  }
+  // strftime's %l pads the hour with a space, which would shift a centred
+  // line; only the AM/PM marker comes from it, in the watch's language. A
+  // watch language the app does not speak falls back to English, and so does
+  // the marker, rather than mixing two languages on one line.
+  char am_pm[8] = "";  // strftime leaves it as is when the marker does not fit
+  if (lang == LANG_EN) {
+    strncpy(am_pm, t->tm_hour < 12 ? "AM" : "PM", sizeof(am_pm));
+  } else {
+    strftime(am_pm, sizeof(am_pm), "%p", t);
+  }
+  int h = t->tm_hour % 12;
+  snprintf(buf, len, "%d:%02d %s", h ? h : 12, t->tm_min, am_pm);
+}
+
+#if MOON_HAS_DETAILS
+const char *i18n_eclipse_name(Lang lang, bool total) {
+  return DETAILS[lang].eclipse[total ? 0 : 1];
+}
+
+const char *i18n_apsis_name(Lang lang, bool perigee) {
+  return DETAILS[lang].apsis[perigee ? 0 : 1];
+}
+
+const char *i18n_node_name(Lang lang, bool ascending) {
+  return DETAILS[lang].node[ascending ? 0 : 1];
+}
+
+const char *i18n_distance_label(Lang lang, int distance_class) {
+  return DETAILS[lang].distance[distance_class < 0 ? 0 : distance_class > 4 ? 4 : distance_class];
+}
+
+const char *i18n_word(Lang lang, I18nWord word) {
+  return DETAILS[lang].words[word];
+}
+
+void i18n_short_date(Lang lang, const struct tm *t, bool with_year, char *buf, size_t len) {
+  char date[24];
+  i18n_date(lang, t->tm_mday, t->tm_mon, true, date, sizeof(date));
+  if (!with_year) {
+    snprintf(buf, len, "%s", date);
+    return;
+  }
+  int year = t->tm_year + 1900;
+  switch (LANGS[lang].date_style) {
+    case DS_MONTH_D:
+      snprintf(buf, len, "%s, %d", date, year);
+      break;
+    case DS_ZH:
+      snprintf(buf, len, "%d年%s", year, date);
+      break;
+    default:
+      snprintf(buf, len, "%s %d", date, year);
+      break;
+  }
+}
+
+void i18n_km(Lang lang, int32_t km, char *buf, size_t len) {
+  // Distances stay below a million km: two groups at most.
+  const char *sep = DETAILS[lang].thousands;
+  if (km >= 1000) {
+    snprintf(buf, len, "%ld%s%03ld" NBSP "km", (long)(km / 1000), sep, (long)(km % 1000));
+  } else {
+    snprintf(buf, len, "%ld" NBSP "km", (long)km);
+  }
+}
+
+void i18n_percent(Lang lang, int percent, char *buf, size_t len) {
+  snprintf(buf, len, "%d%s%%", percent, DETAILS[lang].percent_space);
+}
+#endif

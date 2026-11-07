@@ -74,3 +74,54 @@ void i18n_relative(Lang lang, int days, char *buf, size_t len);
  * "juil.").
  */
 void i18n_date(Lang lang, int day, int month0, bool abbrev, char *buf, size_t len);
+
+/**
+ * Local time of day `t` into `buf`, by the watch's 12/24-hour setting. In
+ * 12-hour style the AM/PM marker comes in the watch's language, or in English
+ * when the app fell back to it.
+ */
+void i18n_time(Lang lang, const struct tm *t, char *buf, size_t len);
+
+#if MOON_HAS_DETAILS
+/** Name of a lunar eclipse, total or partial ("lunar" is left out). */
+const char *i18n_eclipse_name(Lang lang, bool total);
+
+/** Name of a perigee or apogee. */
+const char *i18n_apsis_name(Lang lang, bool perigee);
+
+/** Name of a passage through the ascending or descending node. */
+const char *i18n_node_name(Lang lang, bool ascending);
+
+/**
+ * How far the Moon is, in words, for a distance class of
+ * moon_distance_class(), agreeing with the Moon where the language inflects.
+ */
+const char *i18n_distance_label(Lang lang, int distance_class);
+
+/** Words of the detail cards: their headings and how the Moon moves. */
+typedef enum {
+  I18N_DISTANCE = 0,
+  I18N_NEXT_NODE,
+  I18N_NEXT_ECLIPSE,
+  I18N_NOW,
+  I18N_NEXT_PERIGEE,
+  I18N_NEXT_APOGEE,
+  I18N_TOWARD_PERIGEE,  //!< the Moon approaching
+  I18N_TOWARD_APOGEE,   //!< the Moon receding
+  I18N_WORD_COUNT,
+} I18nWord;
+
+const char *i18n_word(Lang lang, I18nWord word);
+
+/**
+ * Short local date into `buf`, "14 nov.", or "12 janv. 2028" with `with_year`,
+ * the month abbreviated as on the cards.
+ */
+void i18n_short_date(Lang lang, const struct tm *t, bool with_year, char *buf, size_t len);
+
+/** A distance in km with the language's grouping, "356 979 km". */
+void i18n_km(Lang lang, int32_t km, char *buf, size_t len);
+
+/** A percentage with the language's spacing, "92 %" or "92%". */
+void i18n_percent(Lang lang, int percent, char *buf, size_t len);
+#endif
